@@ -89,6 +89,18 @@ export function apply(ctx: Ctx, config: TeamCoreConfig): void {
   marker(config.stateRoot, 'core', 'load', JSON.stringify(loaded))
   ctx.provide('teamService', service)
 
+  // 断线补偿:把路由中的群列表推给 IM 网关(setWatchChats),适配器重连后拉取最近窗口补投;
+  // bind/unbind/init 变更时(routes-changed 事件)重推。
+  const pushWatchChats = (): void => {
+    const gw = ctx.get('teamImGateway') as { setWatchChats?(channel: string, chatIds: string[]): void } | undefined
+    if (gw?.setWatchChats === undefined) return
+    for (const { channel, chatIds } of service.watchChatsByChannel()) {
+      if (chatIds.length > 0) gw.setWatchChats(channel, chatIds)
+    }
+  }
+  pushWatchChats()
+  ctx.on('team/routes-changed', pushWatchChats)
+
   // 诊断:preset roster(含 broken 原因)
   void Promise.resolve()
     .then(() => (presets as { list(): Promise<Array<{ id: string; broken?: string; path?: string }>> }).list())

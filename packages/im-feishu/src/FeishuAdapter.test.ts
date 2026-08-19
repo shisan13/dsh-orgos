@@ -310,4 +310,64 @@ describe('Given FeishuAdapter 生命周期(record-replay)', () => {
       vi.useRealTimers()
     }
   })
+
+  it('When start 后 setWatchChats Then 补偿拉取最近窗口并补投;重复 messageId 幂等跳过', async () => {
+    const t = fakeTransport()
+    const fetched: Array<{ chatId: string; startTimeMs: number }> = []
+    const transport = {
+      ...t.transport,
+      async fetchRecentMessages(chatId: string, startTimeMs: number) {
+        fetched.push({ chatId, startTimeMs })
+        const event = (groupMentionEvent as { event: unknown }).event
+        return [event, event] // 同一条重复(模拟与 WS 已到达消息重叠)→ 幂等跳过
+      },
+    }
+    const inbound: string[] = []
+    const adapter = new FeishuAdapter({
+      credentials: { appId: 'a', appSecret: 's' },
+      transport,
+      onInbound: (msg) => inbound.push(`${msg.kind}:${msg.messageId}`),
+    })
+    await adapter.start()
+    adapter.setWatchChats(['oc_group_1'])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(fetched.length).toBe(1)
+    expect(fetched[0]?.chatId).toBe('oc_group_1')
+    expect(inbound).toEqual(['mention:om_group_1'])
+    await adapter.stop()
+  })
+
+  it('When 未设置 watchChats Then 不发起补偿拉取', async () => {
+    const t = fakeTransport()
+    let fetchCalls = 0
+    const transport = { ...t.transport, async fetchRecentMessages() { fetchCalls += 1; return [] } }
+    const adapter = new FeishuAdapter({ credentials: { appId: 'a', appSecret: 's' }, transport })
+    await adapter.start()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(fetchCalls).toBe(0)
+    await adapter.stop()
+  })
+
+  it('When 补偿拉取失败 Then 降级不崩,后续 WS 事件仍正常', async () => {
+    const t = fakeTransport()
+    const transport = {
+      ...t.transport,
+      async fetchRecentMessages() {
+        throw new Error('permission denied(im:message:readonly 未开通)')
+      },
+    }
+    const inbound: string[] = []
+    const adapter = new FeishuAdapter({
+      credentials: { appId: 'a', appSecret: 's' },
+      transport,
+      onInbound: (msg) => inbound.push(`${msg.kind}:${msg.messageId}`),
+    })
+    await adapter.start()
+    adapter.setWatchChats(['oc_group_1'])
+    await new Promise((r) => setTimeout(r, 0))
+    t.emit(groupMentionEvent) // 主链路不受影响
+    await new Promise((r) => setTimeout(r, 0))
+    expect(inbound).toEqual(['mention:om_group_1'])
+    await adapter.stop()
+  })
 })

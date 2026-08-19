@@ -649,6 +649,7 @@ export class TeamService {
     }
     const applied = this.applyConfig(next)
     if (!applied.ok) return applied
+    this.options.emit?.('team/routes-changed', {})
     // 名称一致性提示(FR-UX):IM 中机器人/群的显示名与团队室显示名保持一致的建议
     const hint = this.nameConsistencyHint(target)
     return hint === undefined ? { ok: true } : { ok: true, hint }
@@ -668,7 +669,9 @@ export class TeamService {
   /** IM 内 /unbind:解绑 (channel, peerId) */
   unbindRoute(channel: string, peerId: string): { ok: boolean; reason?: string } {
     if (!this.config) return { ok: false, reason: 'team_not_loaded' }
-    return this.applyConfig({ ...this.config, routes: this.config.routes.filter((r) => !(r.channel === channel && r.peerId === peerId)) })
+    const applied = this.applyConfig({ ...this.config, routes: this.config.routes.filter((r) => !(r.channel === channel && r.peerId === peerId)) })
+    if (applied.ok) this.options.emit?.('team/routes-changed', {})
+    return applied
   }
 
   /** 配置应用(绑定/解绑共用):校验 → 原子替换 → 热重载;失败回滚由 atomicWrite 保证 */
@@ -753,7 +756,20 @@ export class TeamService {
     })
     if (!result.ok) return { ok: false, errors: result.errors }
     this.load()
+    this.options.emit?.('team/routes-changed', {})
     return { ok: true }
+  }
+
+  /** 通道 → 需补偿关注的群 id 列表(断线/重启窗口消息补投;仅群会话 oc_ 前缀) */
+  watchChatsByChannel(): Array<{ channel: string; chatIds: string[] }> {
+    const byChannel = new Map<string, string[]>()
+    for (const r of this.config?.routes ?? []) {
+      if (!r.peerId.startsWith('oc_')) continue
+      const list = byChannel.get(r.channel) ?? []
+      if (!list.includes(r.peerId)) list.push(r.peerId)
+      byChannel.set(r.channel, list)
+    }
+    return [...byChannel.entries()].map(([channel, chatIds]) => ({ channel, chatIds }))
   }
 }
 

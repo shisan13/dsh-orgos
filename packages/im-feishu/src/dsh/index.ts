@@ -132,7 +132,41 @@ function createLarkTransport(credentials: FeishuCredentials): FeishuTransport {
         },
       })
     },
+    // 断线补偿:拉取群最近消息(im/v1/messages;需 im:message:readonly 权限)。
+    // 返回形状对齐 WS 事件 event 字段,便于复用同一条规范化+幂等链路。
+    async fetchRecentMessages(chatId, startTimeMs, limit = 50) {
+      const token = await fetchTenantToken(credentials)
+      const res = await fetch(
+        `https://open.feishu.cn/open-apis/im/v1/messages?container_id_type=chat&container_id=${encodeURIComponent(chatId)}&start_time=${Math.floor(startTimeMs / 1000)}&page_size=${Math.min(limit, 50)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      const body = (await res.json()) as { code?: number; msg?: string; data?: { items?: Array<Record<string, unknown>> } }
+      if (!res.ok || (body.code !== undefined && body.code !== 0)) {
+        throw new Error(`飞书拉取历史消息失败:code=${String(body.code)} msg=${body.msg ?? ''}`)
+      }
+      // items[].message_id/chat_id/chat_type/msg_type/content/mentions/create_time + 顶层 sender。
+      // 对齐 WS 事件 event 形状:{ sender: { sender_id, sender_type }, message: {...} }
+      return (body.data?.items ?? []).map((item) => {
+        const sender = item.sender as { id?: { open_id?: string }; sender_type?: string } | undefined
+        return {
+          sender: { sender_id: sender?.id ?? {}, sender_type: sender?.sender_type },
+          message: item,
+        }
+      })
+    },
   }
+}
+
+/** 获取 tenant_access_token(补偿拉取/自检共用;失败抛出由上层降级) */
+async function fetchTenantToken(credentials: FeishuCredentials): Promise<string> {
+  const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ app_id: credentials.appId, app_secret: credentials.appSecret }),
+  })
+  const body = (await res.json()) as { tenant_access_token?: string }
+  if (!body.tenant_access_token) throw new Error('飞书 tenant_access_token 获取失败')
+  return body.tenant_access_token
 }
 
 /** 获取 bot 自身 open_id(用于群 @提及判定;失败返回 undefined 不阻塞连接) */

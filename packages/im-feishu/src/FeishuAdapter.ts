@@ -17,6 +17,10 @@ import { renderCard, type AnyCard } from './cards.ts'
 import { segmentText } from './format.ts'
 import { BackoffPolicy } from './backoff.ts'
 
+/** 断线补偿窗口与单群拉取上限 */
+const COMPENSATE_WINDOW_MS = 5 * 60_000
+const COMPENSATE_LIMIT = 50
+
 /** 已解析的飞书凭据(Pro 绑定层从 ctx.credentials 读取后注入;日志脱敏由绑定层负责) */
 export interface FeishuCredentials {
   appId: string
@@ -32,6 +36,8 @@ export interface FeishuTransport {
   }): Promise<{ disconnect(): Promise<void>; selfOpenId(): string | undefined }>
   sendText(chatId: string, text: string): Promise<void>
   sendCard(chatId: string, card: unknown): Promise<void>
+  /** 拉取群最近消息(断线补偿用):返回 WS 事件 event 形状的数组(含 message 字段) */
+  fetchRecentMessages?(chatId: string, startTimeMs: number, limit?: number): Promise<Array<Record<string, unknown>>>
 }
 
 export interface FeishuAdapterOptions {
@@ -60,6 +66,8 @@ export class FeishuAdapter implements ImAdapter {
   private reconnectAttempt = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private stopping = false
+  /** 需要补偿关注的群(绑定层 setWatchChats;断线/重启窗口内飞书不补发,重连后主动拉取) */
+  private watchChats: string[] = []
 
   constructor(opts: FeishuAdapterOptions) {
     this.channel = opts.channel ?? 'feishu'
@@ -110,6 +118,13 @@ export class FeishuAdapter implements ImAdapter {
     return this.reconnectAttempt
   }
 
+  /** 设置需补偿关注的群(绑定层在 routes 就绪后调用;已启动则立即补拉一次,幂等去重兜底) */
+  setWatchChats(chatIds: string[]): void {
+    this.watchChats = [...chatIds]
+    this.opts.onDebug?.(`watch-chats set: ${this.watchChats.join(',')}`)
+    if (this.started) void this.compensateMissed()
+  }
+
   private async connectOnce(): Promise<void> {
     if (!this.started || this.stopping) return
     try {
@@ -126,8 +141,30 @@ export class FeishuAdapter implements ImAdapter {
       this.selfOpenIdValue = handle.selfOpenId()
       this.reconnectAttempt = 0
       this.opts.onConnection?.('connected')
+      // 断线补偿:飞书 WS 断线期间事件不补发,重连后拉取最近窗口群消息补投
+      // (handleEvent 内幂等去重,已处理的消息安全跳过)
+      void this.compensateMissed()
     } catch (err) {
       this.scheduleReconnect(err instanceof Error ? err.message : 'connect-failed')
+    }
+  }
+
+  /** 拉取关注群的最近窗口消息补投(单群失败不阻塞其余;未配置 fetchRecentMessages 时跳过) */
+  private async compensateMissed(): Promise<void> {
+    const fetchRecent = this.opts.transport.fetchRecentMessages
+    if (fetchRecent === undefined || this.watchChats.length === 0) return
+    const since = Date.now() - COMPENSATE_WINDOW_MS
+    for (const chatId of this.watchChats) {
+      try {
+        const events = await fetchRecent(chatId, since, COMPENSATE_LIMIT)
+        this.opts.onDebug?.(`compensate chat=${chatId} fetched=${events.length}`)
+        for (const event of events) {
+          this.handleEvent({ header: { event_type: 'im.message.receive_v1' }, event })
+        }
+      } catch (error) {
+        // 拉取失败(如未开通 im:message:readonly 权限)降级:仅记录,不影响 WS 主链路
+        this.opts.onDebug?.(`compensate-failed chat=${chatId}: ${String(error).slice(0, 120)}`)
+      }
     }
   }
 

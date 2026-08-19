@@ -37,6 +37,7 @@ interface AdapterLike {
   start(): Promise<void>
   stop(): Promise<void>
   sendText(target: unknown, text: string): Promise<void>
+  setWatchChats?(chatIds: string[]): void
 }
 
 interface AdapterFactory {
@@ -51,6 +52,8 @@ export interface TeamImGateway {
   registerAdapter(factory: AdapterFactory): void
   sendText(channel: string, target: { kind: 'group' | 'direct'; id: string }, text: string): Promise<void>
   sendCard(channel: string, target: { kind: 'group' | 'direct'; id: string }, card: unknown): Promise<void>
+  /** 设置通道需补偿关注的群(断线/重启窗口消息补投);adapter 未启动时缓存,启动后补推 */
+  setWatchChats(channel: string, chatIds: string[]): void
 }
 
 export function apply(ctx: Ctx, config: ImGatewayConfig): void {
@@ -63,6 +66,8 @@ export function apply(ctx: Ctx, config: ImGatewayConfig): void {
   mark('gateway:apply channels=' + JSON.stringify(Object.keys(config.channels ?? {})))
   const factories: AdapterFactory[] = []
   const adapters = new Map<string, AdapterLike>()
+  /** adapter 未启动前的 watch 缓存(channel → chatIds) */
+  const pendingWatch = new Map<string, string[]>()
   const credentials = ctx.credentials
 
   const gateway: TeamImGateway = {
@@ -92,6 +97,16 @@ export function apply(ctx: Ctx, config: ImGatewayConfig): void {
         mark(`sendCard ${channel} ok`)
       } catch (e) {
         mark(`sendCard ${channel} FAIL ${String(e).slice(0, 150)}`)
+      }
+    },
+    setWatchChats(channel, chatIds) {
+      const adapter = adapters.get(channel)
+      if (adapter && adapter.setWatchChats) {
+        adapter.setWatchChats(chatIds)
+        mark(`watch ${channel} chats=${chatIds.length}`)
+      } else {
+        pendingWatch.set(channel, chatIds)
+        mark(`watch ${channel} pending chats=${chatIds.length}`)
       }
     },
   }
@@ -137,6 +152,13 @@ export function apply(ctx: Ctx, config: ImGatewayConfig): void {
       await adapter.start()
       adapters.set(channel, adapter)
       mark(`channel:${channel} started`)
+      // 启动前的 watch 缓存补推(重连补偿窗口在 adapter 内部生效)
+      const pending = pendingWatch.get(channel)
+      if (pending !== undefined && adapter.setWatchChats) {
+        adapter.setWatchChats(pending)
+        mark(`watch ${channel} applied chats=${pending.length}`)
+        pendingWatch.delete(channel)
+      }
       ctx.logger.info(`[dsh-orgos-im] 通道 ${channel} 已连接`)
     } catch (error) {
       mark(`channel:${channel} FAIL ${String(error).slice(0, 200)}`)
