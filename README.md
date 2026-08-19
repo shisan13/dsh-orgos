@@ -50,7 +50,7 @@ packages/
 ├── im-gateway/    # MessageGateway seam + 消息规范化
 ├── im-feishu/     # 飞书适配器(WS 长连接,已实测)
 ├── im-telegram/ wecom/ dingtalk/ slack/ discord/ whatsapp/
-├── tools/         # 团队工具(delegate/status/mail/task/setup/doctor/run)
+├── tools/         # 团队工具(delegate/status/mail/task/memory/setup(含 replace)/doctor/run)
 ├── ui/            # Client 半(团队室数据加载器)
 └── bundle/        # dsh-orgos 组合包(dsh.bundle manifest)
 examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
@@ -61,7 +61,7 @@ examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
 | 阶段 | 状态 |
 |------|------|
 | M1 核心 + 飞书 + 双端实跑 | ✅ 完成 |
-| M2 全 IM + 审批 + Run 数据 | 🔨 进行中(6 适配器纯逻辑完成;telegram 可实测;其余待凭据联调) |
+| M2 全 IM + 审批 + Run 数据 + 三层记忆 + 知识交接 | 🔨 进行中(代码与测试齐;剩:各 IM 真实凭据联调——telegram/whatsapp/slack/discord/钉钉/企微) |
 | M3 集团治理 + 发布 | 🔲 计划中 |
 
 ## 贡献
