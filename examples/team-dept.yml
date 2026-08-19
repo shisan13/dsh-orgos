@@ -20,10 +20,10 @@ nodes:
 positions:
   - id: dept-head
     title: 部门主管
-    occupant: { kind: agent, preset: orgos-orchestrator-manager }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: frontend-lead
     title: 前端组长
-    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: backend-lead
     title: 后端组长
     occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }

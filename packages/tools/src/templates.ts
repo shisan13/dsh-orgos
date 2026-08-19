@@ -18,7 +18,7 @@ nodes:
 positions:
   - id: lead
     title: 组长
-    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: coder-1
     title: 工程师
     teamId: my-team
@@ -57,10 +57,10 @@ nodes:
 positions:
   - id: dept-head
     title: 部门主管
-    occupant: { kind: agent, preset: orgos-orchestrator-manager }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: frontend-lead
     title: 前端组长
-    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: backend-lead
     title: 后端组长
     occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
@@ -116,10 +116,10 @@ positions:
     occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
   - id: cto
     title: CTO
-    occupant: { kind: agent, preset: orgos-orchestrator-bg }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: frontend-lead
     title: 前端组长
-    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: fe-1
     title: 前端工程师
     teamId: team-front

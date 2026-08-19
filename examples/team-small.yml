@@ -9,7 +9,7 @@ nodes:
 positions:
   - id: lead
     title: 组长
-    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: coder-1
     title: 工程师
     teamId: my-team
