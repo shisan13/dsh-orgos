@@ -25,9 +25,10 @@ export interface TeamSnapshotData {
   loaded: boolean
   org?: string
   positions: Array<{ id: string; kind: 'agent' | 'human'; preset?: string; status: string }>
-  delegations: unknown[]
-  tasks: unknown[]
+  delegations: Array<{ id: string; status: string; brief?: { target?: string; task?: string } }>
+  tasks: Array<{ id: string; title: string; status: string; assignee: string }>
   mailCount: number
+  memoryCount: number
   run?: string
   doctor?: { checks: Array<{ name: string; ok: boolean; detail: string }> }
 }
@@ -39,6 +40,27 @@ const STATUS_VIEW: Record<string, { label: string; color: string }> = {
   idle: { label: '空闲', color: 'var(--dsw-alias-state-success-primary)' },
   busy: { label: '工作中', color: 'var(--dsw-alias-state-warn-primary)' },
   failed: { label: '异常', color: 'var(--dsw-alias-state-error-primary)' },
+}
+
+/** 委派单状态语义 */
+const DELEGATION_STATUS_VIEW: Record<string, { label: string; color: string }> = {
+  queued: { label: '排队', color: 'var(--dsw-alias-label-secondary)' },
+  dispatched: { label: '已派发', color: 'var(--dsw-alias-brand-primary)' },
+  running: { label: '执行中', color: 'var(--dsw-alias-state-warn-primary)' },
+  escalated: { label: '已升级', color: 'var(--dsw-alias-state-warn-primary)' },
+  completed: { label: '完成', color: 'var(--dsw-alias-state-success-primary)' },
+  failed: { label: '失败', color: 'var(--dsw-alias-state-error-primary)' },
+  'failed-final': { label: '最终失败', color: 'var(--dsw-alias-state-error-primary)' },
+  timeout: { label: '超时', color: 'var(--dsw-alias-state-error-primary)' },
+  cancelled: { label: '取消', color: 'var(--dsw-alias-label-secondary)' },
+}
+
+/** 任务状态语义 */
+const TASK_STATUS_VIEW: Record<string, { label: string; color: string }> = {
+  open: { label: '待认领', color: 'var(--dsw-alias-label-secondary)' },
+  claimed: { label: '进行中', color: 'var(--dsw-alias-state-warn-primary)' },
+  done: { label: '完成', color: 'var(--dsw-alias-state-success-primary)' },
+  cancelled: { label: '取消', color: 'var(--dsw-alias-label-secondary)' },
 }
 
 /** 主题别名,组件内统一引用,避免散落硬编码色 */
@@ -90,6 +112,11 @@ function TeamRoomView(): unknown {
     return createElement('div', { style: { padding: 24, color: T.text2 } }, '加载团队状态…')
   }
   const checks = data.doctor?.checks ?? []
+  const delegations = data.delegations ?? []
+  const inflight = delegations.filter((d) => ['queued', 'dispatched', 'running', 'escalated'].includes(d.status)).length
+  const failed = delegations.filter((d) => ['failed', 'failed-final', 'timeout'].includes(d.status)).length
+  const tasks = data.tasks ?? []
+  const openTasks = tasks.filter((t) => t.status === 'open' || t.status === 'claimed').length
   return createElement(
     'div',
     { style: { padding: 24, display: 'flex', flexDirection: 'column', gap: 16, color: T.text } },
@@ -116,6 +143,50 @@ function TeamRoomView(): unknown {
       'div',
       { style: { color: T.text2, fontSize: 12 } },
       '成员按需唤醒:「待命」= 未派发任务,派发时自动上线,不产生常驻成本。',
+    ),
+    createElement(
+      'div',
+      { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+      createElement(
+        'div',
+        { style: { fontSize: 13, fontWeight: 600, color: T.text2, marginBottom: 2 } },
+        `委派单 ${delegations.length} · 在途 ${inflight} · 失败 ${failed}`,
+      ),
+      delegations.length === 0
+        ? createElement('div', { style: { color: T.text2, fontSize: 13 } }, '暂无委派(用 team_delegate 派发任务)')
+        : delegations.slice(0, 8).map((d) =>
+            createElement(
+              'div',
+              { key: d.id, style: { display: 'flex', gap: 8, fontSize: 13, alignItems: 'center' } },
+              createElement('span', { style: { minWidth: 88, color: T.text2 } }, d.brief?.target ?? ''),
+              createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, d.brief?.task ?? d.id),
+              createElement('span', {
+                style: { color: DELEGATION_STATUS_VIEW[d.status]?.color ?? T.text2 },
+              }, DELEGATION_STATUS_VIEW[d.status]?.label ?? d.status),
+            ),
+          ),
+    ),
+    createElement(
+      'div',
+      { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+      createElement(
+        'div',
+        { style: { fontSize: 13, fontWeight: 600, color: T.text2, marginBottom: 2 } },
+        `任务板 ${tasks.length} · 进行中 ${openTasks} · 邮箱 ${data.mailCount} · 记忆 ${data.memoryCount}`,
+      ),
+      tasks.length === 0
+        ? createElement('div', { style: { color: T.text2, fontSize: 13 } }, '任务板为空')
+        : tasks.slice(0, 8).map((t) =>
+            createElement(
+              'div',
+              { key: t.id, style: { display: 'flex', gap: 8, fontSize: 13, alignItems: 'center' } },
+              createElement('span', { style: { minWidth: 88, color: T.text2 } }, t.assignee),
+              createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t.title),
+              createElement('span', {
+                style: { color: TASK_STATUS_VIEW[t.status]?.color ?? T.text2 },
+              }, TASK_STATUS_VIEW[t.status]?.label ?? t.status),
+            ),
+          ),
     ),
     data.run !== undefined
       ? createElement('div', { style: { color: T.text2 } }, data.run)
