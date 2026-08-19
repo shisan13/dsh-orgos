@@ -19,6 +19,7 @@ PACKS = {
     'im-slack': 'dsh-orgos-im-slack',
     'im-discord': 'dsh-orgos-im-discord',
     'im-whatsapp': 'dsh-orgos-im-whatsapp',
+    'doc-feishu': 'dsh-orgos-doc-feishu',
     'bundle': 'dsh-orgos',
 }
 os.makedirs(DEST, exist_ok=True)
