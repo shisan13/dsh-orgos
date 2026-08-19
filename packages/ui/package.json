@@ -31,13 +31,14 @@
   "license": "MIT",
   "author": "shisan13",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-client.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.18",
+    "esbuild": "^0.28.2",
     "react": "^19.2.8",
     "typescript": "^5.0.0",
     "vitest": "^4.0.0"
