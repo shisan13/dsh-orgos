@@ -54,7 +54,7 @@ export interface TeamServiceOptions {
 export interface TeamSnapshot {
   loaded: boolean
   org?: string
-  positions: Array<{ id: string; kind: 'agent' | 'human'; preset?: string; status: string }>
+  positions: Array<{ id: string; kind: 'agent' | 'human'; title?: string; preset?: string; status: string }>
   delegations: unknown[]
   tasks: unknown[]
   mailCount: number
@@ -160,6 +160,7 @@ export class TeamService {
       this.members.set(p.id, {
         positionId: p.id,
         kind: p.occupant.kind,
+        title: p.title,
         presetId: p.occupant.kind === 'agent' ? p.occupant.preset : undefined,
         cwd: undefined,
         model: undefined,
@@ -277,6 +278,7 @@ export class TeamService {
       positions: [...this.members.values()].map((m) => ({
         id: m.positionId,
         kind: m.kind,
+        title: m.title,
         preset: m.presetId,
         status: this.memberStatus.get(m.positionId) ?? 'offline',
       })),

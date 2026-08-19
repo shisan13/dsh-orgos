@@ -40,6 +40,8 @@ export interface AgentDefaultModelLike {
 export interface MemberDef {
   positionId: string
   kind: 'agent' | 'human'
+  /** 岗位显示名(team.yml title,团队室/IM 文案用;缺省回落 id) */
+  title?: string
   presetId?: string
   cwd?: string
   model?: { provider: string; model: string }

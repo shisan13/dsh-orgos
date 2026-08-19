@@ -24,7 +24,7 @@ interface ClientCtx {
 export interface TeamSnapshotData {
   loaded: boolean
   org?: string
-  positions: Array<{ id: string; kind: 'agent' | 'human'; preset?: string; status: string }>
+  positions: Array<{ id: string; kind: 'agent' | 'human'; title?: string; preset?: string; status: string }>
   delegations: Array<{ id: string; status: string; brief?: { target?: string; task?: string } }>
   tasks: Array<{ id: string; title: string; status: string; assignee: string }>
   mailCount: number
@@ -128,7 +128,7 @@ function TeamRoomView(): unknown {
         createElement(
           'div',
           { key: p.id, style: { display: 'flex', gap: 8, alignItems: 'center' } },
-          createElement('span', { style: { minWidth: 96, fontWeight: 600 } }, p.id),
+          createElement('span', { style: { minWidth: 96, fontWeight: 600 } }, p.title ?? p.id),
           createElement('span', { style: { color: p.kind === 'human' ? T.ok : T.brand } }, p.kind === 'human' ? '真人' : '虚拟员工'),
           p.preset !== undefined ? createElement('span', { style: { color: T.text2 } }, p.preset) : null,
           createElement('span', {
