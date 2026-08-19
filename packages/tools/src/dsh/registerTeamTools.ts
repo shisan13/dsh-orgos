@@ -227,17 +227,21 @@ export function registerTeamTools(ctx: { get(key: string): unknown }, tools: Too
   tools.register({
     name: 'team_setup',
     description:
-      "团队配置管理(仅组织根 orchestrator 场景)。init 用模板创建团队:'small'=3 岗位小组;'dept'=2 团队示例。写入走安全流程(备份→校验→原子替换,失败自动回滚)。",
+      "团队配置管理(仅组织根 orchestrator 场景)。init 用模板创建团队:'small'=3 岗位小组;'dept'=2 团队示例。replace 替换岗位占位者(agent↔human↔preset 升级),系统自动生成交接清单、按岗位 handover 策略处理进行中任务并注入新占位者初始记忆。写入走安全流程(备份→校验→原子替换,失败自动回滚)。",
     parameters: toJsonSchema({
-      action: { type: 'string', required: true, description: 'init | bind | unbind' },
+      action: { type: 'string', required: true, description: 'init | bind | unbind | replace' },
       scale: { type: 'string', description: 'init 用:small | dept | group(默认 small)' },
       channel: { type: 'string', description: 'bind/unbind 用:IM 通道名(如 feishu-main)' },
       peerId: { type: 'string', description: 'bind/unbind 用:群/会话 ID' },
-      target: { type: 'string', description: 'bind 用:目标岗位或节点 id' },
+      target: { type: 'string', description: 'bind 用:目标岗位或节点 id;replace 用:目标岗位 id' },
+      newKind: { type: 'string', description: "replace 用:新占位者类型 agent | human" },
+      newPreset: { type: 'string', description: 'replace 用:agent 新占位者的角色 preset id' },
+      newImChannel: { type: 'string', description: 'replace 用:human 新占位者的 IM 通道' },
+      newImUserId: { type: 'string', description: 'replace 用:human 新占位者的 IM 用户 id' },
     }),
     output: JSON_OUTPUT,
-    async execute(args, _exec) {
-      const a = args as { action: string; scale?: string; channel?: string; peerId?: string; target?: string }
+    async execute(args, exec) {
+      const a = args as { action: string; scale?: string; channel?: string; peerId?: string; target?: string; newKind?: string; newPreset?: string; newImChannel?: string; newImUserId?: string }
       if (a.action === 'init') {
         const template = a.scale === 'dept' ? TEMPLATE_DEPT : a.scale === 'group' ? TEMPLATE_GROUP : TEMPLATE_SMALL
         return service.setupInit(template)
@@ -249,6 +253,18 @@ export function registerTeamTools(ctx: { get(key: string): unknown }, tools: Too
       if (a.action === 'unbind') {
         if (!a.channel || !a.peerId) return { ok: false, reason: 'unbind 需要 channel/peerId' }
         return service.unbindRoute(a.channel, a.peerId)
+      }
+      if (a.action === 'replace') {
+        if (!a.target) return { ok: false, reason: 'replace 需要 target(岗位 id)' }
+        if (a.newKind === 'human') {
+          if (!a.newImChannel || !a.newImUserId) return { ok: false, reason: 'replace human 需要 newImChannel/newImUserId' }
+          return service.replaceOccupant(positionOf(exec), a.target, { kind: 'human', im: { channel: a.newImChannel, userId: a.newImUserId } })
+        }
+        if (a.newKind === 'agent') {
+          if (!a.newPreset) return { ok: false, reason: 'replace agent 需要 newPreset' }
+          return service.replaceOccupant(positionOf(exec), a.target, { kind: 'agent', preset: a.newPreset })
+        }
+        return { ok: false, reason: 'replace 需要 newKind: agent | human' }
       }
       return { ok: false, reason: `unknown_action: ${a.action}` }
     },

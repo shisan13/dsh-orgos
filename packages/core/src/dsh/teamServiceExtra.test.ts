@@ -1,5 +1,5 @@
 /**
- * TeamService 补充路径测试(邮箱/任务板/心跳/human 投递/replay/序列化/三层记忆)
+ * TeamService 补充路径测试(邮箱/任务板/心跳/human 投递/replay/序列化/三层记忆/岗位替换)
  * Given-When-Then(AGENTS.md §4 闸门)。fixture 与 teamService.test.ts 保持同构。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -35,11 +35,18 @@ acl:
   delegationDepthMax: 3
 `
 
+/** coder-1 岗位带 handover 策略的变体(reassignOpenTasks=cancel, inheritMemory=private) */
+const CANCEL_YML = TEST_TEAM_YML.replace(
+  '    occupant: { kind: agent, preset: orgos-coder }\n  - id: human-1',
+  '    occupant: { kind: agent, preset: orgos-coder }\n    handover: { inheritMemory: private, reassignOpenTasks: cancel }\n  - id: human-1',
+)
+
 class FakeAgent implements LiveAgent {
   id: string
   status: 'idle' | 'running' = 'idle'
   session = { id: '' }
   inbox: string[] = []
+  disposed = false
   constructor(id: string) {
     this.id = id
     this.session = { id }
@@ -51,7 +58,9 @@ class FakeAgent implements LiveAgent {
     this.inbox.push((msg as { content: { text: string }[] }).content.map((b) => b.text).join(''))
   }
   send(): void {}
-  async dispose(): Promise<void> {}
+  async dispose(): Promise<void> {
+    this.disposed = true
+  }
 }
 
 interface OutCall {
@@ -59,7 +68,7 @@ interface OutCall {
   text: string
 }
 
-describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆)', () => {
+describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆/替换)', () => {
   let dir: string
   let service: TeamService
   let fakeAgents: DshAgents & { registry: Map<string, FakeAgent> }
@@ -78,7 +87,7 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆)', () =>
         await o.setup?.({})
         const agent = new FakeAgent(o.sessionId)
         registry.set(o.sessionId, agent)
-        return { agent, dispose: async () => {} }
+        return { agent, dispose: async () => { agent.disposed = true } }
       },
       async resume() {
         throw new Error('SESSION not found')
@@ -222,6 +231,7 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆)', () =>
     expect(empty.heartbeatReport().text).toContain('未配置')
     expect(empty.memorySave('lead', 'team', 'contribution', 'x').ok).toBe(false)
     expect(empty.memoryList('lead').entries).toEqual([])
+    expect(empty.replaceOccupant('lead', 'coder-1', { kind: 'agent', preset: 'p' }).ok).toBe(false)
   })
 
   describe('三层记忆流(memorySave/memoryList,§4.6.3)', () => {
@@ -268,6 +278,92 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆)', () =>
       })
       expect(service2.load().loaded).toBe(true)
       expect(service2.memoryList('lead').entries.length).toBe(2)
+    })
+  })
+
+  describe('岗位替换(§4.7.3 知识交接)', () => {
+    it('GIVEN orchestrator 替换 agent 岗位 WHEN replaceOccupant THEN 清单/热更/记忆/句柄释放/注入', async () => {
+      // 先激活 coder-1 拿到旧句柄
+      await service.handleInbound({
+        channel: 'feishu',
+        peer: { kind: 'group', id: 'oc_room' },
+        sender: { id: 'ou_owner' },
+        kind: 'text',
+        content: 'hi',
+        messageId: 'm-activate',
+      })
+      const oldAgent = fakeAgents.registry.get('orgos-member-coder-1')
+      expect(oldAgent).toBeDefined()
+      const r = service.replaceOccupant('lead', 'coder-1', { kind: 'agent', preset: 'orgos-reviewer' })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.handover.note).toContain('HANDOVER')
+      // 配置热更:members 已换成新 preset
+      expect(service.status('lead').positions.find((p) => p.id === 'coder-1')?.preset).toBe('orgos-reviewer')
+      // 旧句柄已释放
+      expect(oldAgent?.disposed).toBe(true)
+      // 交接知识落团队记忆(默认 inheritMemory=team)
+      const memories = service.memoryList('lead').entries
+      expect(memories.some((m) => m.kind === 'handover' && m.content.includes('coder-1'))).toBe(true)
+      // 新占位者初始注入:再次入站时 framing 注入
+      await service.handleInbound({
+        channel: 'feishu',
+        peer: { kind: 'group', id: 'oc_room' },
+        sender: { id: 'ou_owner' },
+        kind: 'text',
+        content: 'again',
+        messageId: 'm-again',
+      })
+      const live = fakeAgents.registry.get('orgos-member-coder-1')
+      expect(live?.inbox.some((t) => t.includes('[HANDOVER FRAMING]'))).toBe(true)
+      expect(events.some(([e]) => e === 'team/occupant-replaced')).toBe(true)
+    })
+
+    it('GIVEN agent 岗位替换为 human WHEN replaceOccupant THEN IM 欢迎卡附交接清单', () => {
+      const r = service.replaceOccupant('lead', 'coder-1', { kind: 'human', im: { channel: 'feishu', userId: 'ou_new' } })
+      expect(r.ok).toBe(true)
+      expect(outs.some((o) => o.text.includes('欢迎入职') && o.text.includes('HANDOVER'))).toBe(true)
+      expect(service.status('lead').positions.find((p) => p.id === 'coder-1')?.kind).toBe('human')
+    })
+
+    it('GIVEN 非 orchestrator 岗位替换 WHEN replaceOccupant THEN 越权拒绝', () => {
+      const r = service.replaceOccupant('coder-1', 'human-1', { kind: 'agent', preset: 'orgos-coder' })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toContain('越权')
+    })
+
+    it('GIVEN 岗位不存在 WHEN replaceOccupant THEN position_not_found', () => {
+      const r = service.replaceOccupant('lead', 'ghost', { kind: 'agent', preset: 'orgos-coder' })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toBe('position_not_found')
+    })
+
+    it('GIVEN agent 占位者缺 preset WHEN replaceOccupant THEN 参数拒绝', () => {
+      const r = service.replaceOccupant('lead', 'coder-1', { kind: 'agent', preset: '' })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toContain('preset')
+    })
+  })
+
+  describe('岗位替换-交接策略(handover 配置)', () => {
+    it('GIVEN reassignOpenTasks=cancel WHEN 替换 THEN 进行中任务取消且 private 层不落库', () => {
+      const svc = new TeamService({
+        stateRoot: dir,
+        ownerIds: ['ou_owner'],
+        agents: fakeAgents,
+        presets: { async mount() { return {} } },
+        emit: (event, payload) => events.push([event, payload]),
+        outbound: (target, text) => outs.push({ target, text }),
+      })
+      expect(svc.setupInit(CANCEL_YML).ok).toBe(true)
+      const created = svc.taskCreate('team-main', '进行中任务', 'coder-1', 'lead')
+      expect(created.ok).toBe(true)
+      const r = svc.replaceOccupant('lead', 'coder-1', { kind: 'agent', preset: 'orgos-reviewer' })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.handover.cancelled).toBe(1)
+      const task = svc.status('lead').tasks as Array<{ meta: { status: string } }>
+      expect(task[0]?.meta.status).toBe('cancelled')
+      // inheritMemory=private:不落团队记忆库
+      expect(svc.memoryList('lead').entries.length).toBe(0)
     })
   })
 })

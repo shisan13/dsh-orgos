@@ -70,6 +70,8 @@ export interface MemberRuntime {
  */
 export class SessionMemberRuntime {
   private handles = new Map<string, { agent: LiveAgent; dispose(): Promise<void> }>()
+  /** 岗位启动注入(交接 framing 等):ensure 成功时一次性 inject 并清除 */
+  private readonly bootNotes = new Map<string, string>()
 
   constructor(
     private readonly agents: DshAgents,
@@ -139,6 +141,23 @@ export class SessionMemberRuntime {
     }
   }
 
+  /** 岗位替换:释放当前成员句柄(下次 ensure 重新恢复/创建,注入 boot note) */
+  release(positionId: string, bootNote?: string): void {
+    const handle = this.handles.get(positionId)
+    if (handle) {
+      void handle.dispose()
+      this.handles.delete(positionId)
+    }
+    if (bootNote !== undefined && bootNote.trim().length > 0) this.bootNotes.set(positionId, bootNote)
+  }
+
+  private injectBootNote(positionId: string, agent: LiveAgent): void {
+    const note = this.bootNotes.get(positionId)
+    if (note === undefined) return
+    this.bootNotes.delete(positionId)
+    agent.inject(makeUserMessage(`[HANDOVER FRAMING]\n${note}`))
+  }
+
   async ensure(member: MemberDef): Promise<MemberRuntime> {
     const existing = this.handles.get(member.positionId)
     if (existing) return this.snapshot(member, existing.agent)
@@ -151,6 +170,7 @@ export class SessionMemberRuntime {
       try {
         const resumed = await this.agents.resume(this.resumeOptions(member, sessionId))
         this.handles.set(member.positionId, resumed)
+        this.injectBootNote(member.positionId, resumed.agent)
         this.onStatus?.(member.positionId, resumed.agent.status === 'running' ? 'busy' : 'idle')
         return this.snapshot(member, resumed.agent)
       } catch (error) {
@@ -165,6 +185,7 @@ export class SessionMemberRuntime {
       ? { agent: live, dispose: async () => {} } // 非本运行时装出的 agent 不持有 dispose 权
       : await this.agents.create(this.createOptions(member, sessionId))
     this.handles.set(member.positionId, handle)
+    this.injectBootNote(member.positionId, handle.agent)
     this.onStatus?.(member.positionId, handle.agent.status === 'running' ? 'busy' : 'idle')
     return this.snapshot(member, handle.agent)
   }

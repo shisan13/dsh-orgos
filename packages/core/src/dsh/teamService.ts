@@ -156,6 +156,7 @@ export class TeamService {
           if (task.teamId && task.title && task.assignee) this.taskboard.create({ teamId: task.teamId, title: task.title, assignee: task.assignee, createdBy: task.createdBy ?? 'system' })
         } else if (op === 'claim') this.taskboard.claim(String(rec.taskId), String(rec.positionId))
         else if (op === 'done') this.taskboard.done(String(rec.taskId), String(rec.positionId))
+        else if (op === 'cancel') this.taskboard.cancel(String(rec.taskId), String(rec.positionId))
       } catch {
         /* 坏记录跳过,不阻塞团队启动(可观测性由 team_doctor 覆盖) */
       }
@@ -339,6 +340,109 @@ export class TeamService {
     )
   }
 
+  /**
+   * 岗位替换(技术设计 §4.7.3 知识交接;FR-H5):agent↔human↔preset 升级统一入口。
+   *
+   * 流程:权限校验(治理岗位,管辖子树)→ 生成交接清单(在岗任务摘要/记忆贡献/进行中任务)
+   * → 按 handover.reassignOpenTasks 处理进行中任务(transfer/keep:任务随岗位自动交接;
+   * cancel:取消)→ 知识提炼按 inheritMemory 落层(team/org 写记忆流;private 仅注入)
+   * → 原子更新 team.yml + 热重载 → 释放旧句柄并注入新占位者初始 framing
+   * (agent:boot note 注入 session;human:IM 欢迎卡附交接清单)。
+   */
+  replaceOccupant(
+    viewerPositionId: string,
+    positionId: string,
+    newOccupant: { kind: 'agent'; preset: string } | { kind: 'human'; im: { channel: string; userId: string } },
+  ): { ok: true; handover: { positionId: string; taskCount: number; openCount: number; cancelled: number; note: string } } | { ok: false; reason: string } {
+    if (!this.org || !this.config) return { ok: false, reason: 'team_not_loaded' }
+    const org = this.org
+    const viewer = this.resolveViewer(viewerPositionId)
+    if (!org.hasPosition(positionId)) return { ok: false, reason: 'position_not_found' }
+    // 治理动作:viewer 必须是 orchestrator 且目标岗位在其管辖子树内
+    if (!org.isOrchestrator(viewer)) return { ok: false, reason: `替换越权:岗位 ${viewer} 不是 orchestrator` }
+    const viewerNode = org.nodeOfPosition(viewer)
+    const posNode = org.nodeOfPosition(positionId)
+    if (posNode !== viewerNode && !org.isAncestor(viewerNode, posNode)) {
+      return { ok: false, reason: `替换越权:岗位 ${positionId} 不在 ${viewer} 管辖子树` }
+    }
+    const old = this.members.get(positionId)
+    if (!old) return { ok: false, reason: 'member_not_found' }
+    if (newOccupant.kind === 'agent' && (newOccupant.preset === undefined || newOccupant.preset.length === 0)) {
+      return { ok: false, reason: 'agent 占位者必须指定 preset' }
+    }
+    if (newOccupant.kind === 'human' && (!newOccupant.im?.channel || !newOccupant.im?.userId)) {
+      return { ok: false, reason: 'human 占位者必须指定 im.channel 与 im.userId' }
+    }
+    const pos = org.position(positionId)
+    const policy = pos.handover ?? ({ inheritMemory: 'team', reassignOpenTasks: 'transfer' } as const)
+
+    // 1. 交接清单草案(确定性生成,不依赖模型)
+    const allTasks = this.taskboard?.list() ?? []
+    const mine = allTasks.filter((t) => t.assignee === positionId)
+    const open = mine.filter((t) => t.status === 'open' || t.status === 'claimed')
+    const contributions = this.memory.list().filter((e) => e.author === positionId)
+    const note = [
+      `[HANDOVER] 岗位 ${positionId}:${old.kind === 'agent' ? ` agent(${old.presetId ?? ''})` : ` human(${old.im?.channel ?? ''}:${old.im?.userId ?? ''})`} → ${newOccupant.kind === 'agent' ? `agent(${newOccupant.preset})` : `human(${newOccupant.im.channel}:${newOccupant.im.userId})`}`,
+      `在岗任务 ${mine.length}(进行中 ${open.length}):${mine.map((t) => ` ${t.title}(${t.status})`).join(';') || ' 无'}`,
+      `记忆贡献 ${contributions.length} 条:${contributions.slice(0, 5).map((e) => ` ${e.kind}:${e.content.slice(0, 40)}`).join(';') || ' 无'}`,
+      `交接策略:inheritMemory=${policy.inheritMemory}, reassignOpenTasks=${policy.reassignOpenTasks}`,
+    ].join('\n')
+
+    // 2. 进行中任务按策略处理(cancel 走 TeamService.taskCancel 落流,冷启动不丢状态)
+    let cancelled = 0
+    if (policy.reassignOpenTasks === 'cancel') {
+      for (const t of open) {
+        if (this.taskCancel(viewer, t.id).ok) cancelled += 1
+      }
+    }
+    // transfer/keep:任务 assignee 为岗位 id,占位者替换后自然随岗位交接(清单已列明)
+
+    // 3. 知识提炼落层(§4.7.3 第 4 步);team 层须落到目标岗位所在团队节点
+    if (policy.inheritMemory !== 'private') {
+      const teamNodeId = org.node(posNode).kind === 'team'
+        ? posNode
+        : (org.pathToRoot(posNode).find((id) => org.node(id).kind === 'team') ?? posNode)
+      const saved = this.memorySave(
+        viewer,
+        policy.inheritMemory,
+        'handover',
+        note,
+        `岗位 ${positionId} 交接`,
+        policy.inheritMemory === 'team' ? teamNodeId : undefined,
+      )
+      if (!saved.ok) return { ok: false, reason: `交接记忆写入失败(${policy.inheritMemory} 层):${saved.reason}` }
+    }
+
+    // 4. 原子更新 team.yml + 热重载
+    const next: TeamConfig = {
+      ...this.config,
+      positions: this.config.positions.map((p) =>
+        p.id === positionId ? { ...p, occupant: newOccupant } : p,
+      ),
+    }
+    const text = serializeTeamConfig(next)
+    const applied = atomicWriteTeamYml(this.options.stateRoot, text, (t) => {
+      const parsed = parseTeamConfig(t)
+      return parsed.ok ? [] : parsed.issues.map((i) => `${i.path}: ${i.message}`)
+    })
+    if (!applied.ok) return { ok: false, reason: (applied.errors ?? []).join('; ') }
+    this.load()
+
+    // 5. 释放旧句柄并注入新占位者初始记忆(§4.7.3 第 5 步)
+    const fresh = this.members.get(positionId)
+    if (fresh?.kind === 'human') {
+      this.options.outbound?.(
+        { channel: fresh.im?.channel ?? '', peer: { kind: 'direct', id: fresh.im?.userId ?? '' } },
+        `[dsh-orgos 欢迎入职] 你已接替岗位 ${positionId}。\n${note}`,
+      )
+    } else {
+      this.memberRuntime.release(positionId, note)
+    }
+    this.logRun('handover', { positionId, from: old.kind, to: newOccupant.kind, cancelled })
+    this.options.emit?.('team/occupant-replaced', { positionId, from: old, to: newOccupant, cancelled })
+    return { ok: true, handover: { positionId, taskCount: mine.length, openCount: open.length, cancelled, note } }
+  }
+
   /** 完成/失败回执(team_task_complete / 成员汇报入口) */
   settle(positionId: string, delegationId: string, outcome: 'completed' | 'failed', report: string): { ok: boolean; reason?: string } {
     if (!this.delegation) return { ok: false, reason: 'team_not_loaded' }
@@ -499,6 +603,15 @@ export class TeamService {
     return { ok: true }
   }
 
+  /** 任务取消(占位者替换 reassignOpenTasks=cancel 等入口):落流保证冷启动不丢状态 */
+  taskCancel(positionId: string, taskId: string): { ok: boolean; reason?: string } {
+    if (!this.taskboard) return { ok: false, reason: 'team_not_loaded' }
+    const r = this.taskboard.cancel(taskId, positionId)
+    if (!r.ok) return { ok: false, reason: r.message }
+    this.store.append('taskboard', { op: 'cancel', taskId, positionId })
+    return { ok: true }
+  }
+
   /** IM 内 /bind:绑定 (channel, peerId) → 岗位(FR-X3;配置安全流程:备份→校验→应用) */
   bindRoute(channel: string, peerId: string, target: string): { ok: boolean; reason?: string } {
     if (!this.config) return { ok: false, reason: 'team_not_loaded' }
@@ -598,6 +711,7 @@ export type TeamServiceFacade = Pick<
   | 'taskCreate'
   | 'taskClaim'
   | 'taskDone'
+  | 'taskCancel'
   | 'setupInit'
   | 'doctor'
   | 'setMemberStatus'
@@ -606,6 +720,7 @@ export type TeamServiceFacade = Pick<
   | 'runReport'
   | 'memorySave'
   | 'memoryList'
+  | 'replaceOccupant'
 >
 
 /** 回复回送回路:查成员最近入站来源 */
