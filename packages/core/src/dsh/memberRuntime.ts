@@ -82,7 +82,7 @@ export class SessionMemberRuntime {
     private readonly onApproval?: (positionId: string, approvalId: string, toolName: string, reason?: string) => void,
   ) {}
 
-  private readonly pendingApprovals = new Map<string, { resolve: (outcome: 'approved' | 'rejected') => void; timer: ReturnType<typeof setTimeout> }>()
+  private readonly pendingApprovals = new Map<string, { resolve: (outcome: 'allowed-once' | 'rejected') => void; timer: ReturnType<typeof setTimeout> }>()
 
   /** 成员 agent ctx 审批监听(approval/request 为 scope-filtered waterfall;卡片回执经 resolveApproval 答复) */
   private installApprovalListener(agentCtx: unknown, positionId: string): void {
@@ -114,7 +114,9 @@ export class SessionMemberRuntime {
     if (!pending) return false
     clearTimeout(pending.timer)
     this.pendingApprovals.delete(approvalId)
-    pending.resolve(action === 'allow' ? 'approved' : 'rejected')
+    // DSH ApprovalOutcome 词汇:'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
+    // 曾误用 'approved'(非词汇值)→ 被服务 normalize 为 'unavailable' → 工具层误拒。
+    pending.resolve(action === 'allow' ? 'allowed-once' : 'rejected')
     return true
   }
 
