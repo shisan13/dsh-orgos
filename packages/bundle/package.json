@@ -1,0 +1,31 @@
+{
+  "name": "dsh-orgos",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DeepSeek Harness 上的组织操作系统:IM 路由 + 常驻团队 + 绝不 DIY 调度哲学,人机混合组织的开源插件",
+  "license": "MIT",
+  "author": "shisan13",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "dsh-orgos-core": "workspace:^",
+    "dsh-orgos-im-gateway": "workspace:^",
+    "dsh-orgos-im-feishu": "workspace:^",
+    "dsh-orgos-tools": "workspace:^",
+    "dsh-orgos-ui": "workspace:^",
+    "dsh-orgos-im-telegram": "workspace:^",
+    "dsh-orgos-im-wecom": "workspace:^",
+    "dsh-orgos-im-dingtalk": "workspace:^",
+    "dsh-orgos-im-slack": "workspace:^",
+    "dsh-orgos-im-discord": "workspace:^",
+    "dsh-orgos-im-whatsapp": "workspace:^"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

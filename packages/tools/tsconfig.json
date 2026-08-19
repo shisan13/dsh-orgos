@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "dsh-orgos-core": ["../core/lib/index.d.ts"],
+      "dsh-orgos-core/dsh/*": ["../core/lib/dsh/*"],
+      "dsh-orgos-im-gateway": ["../im-gateway/lib/index.d.ts"]
+    },
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

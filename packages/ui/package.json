@@ -1,0 +1,36 @@
+{
+  "name": "dsh-orgos-ui",
+  "version": "0.1.0",
+  "description": "dsh-orgos Client 半:团队室页签(组织树/成员状态/Run 摘要,HTTP 只读快照渲染)",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/client/index.d.ts",
+      "default": "./lib/client/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib"],
+  "dsh": {
+    "client": true
+  },
+  "license": "MIT",
+  "author": "shisan13",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,13 @@
+/** dsh-orgos-tools 导出(团队工具纯逻辑核心,harness-agnostic) */
+export * from './types.ts'
+export { teamDelegate, teamRetry } from './delegate.ts'
+export type { DelegateInput } from './delegate.ts'
+export { teamMailSend, teamMailRecv } from './mail.ts'
+export type { MailRecvInput, MailSendInput } from './mail.ts'
+export { teamTaskCreate, teamTaskClaim, teamTaskDone, teamTaskCancel, teamTaskList } from './task.ts'
+export type { TaskCreateInput, TaskIdInput } from './task.ts'
+export { teamStatus } from './status.ts'
+export { setupInit, setupValidate, planAtomicUpdate, SETUP_ACTIONS } from './setup.ts'
+export type { AtomicUpdatePlan, SetupInitInput, SetupValidateInput } from './setup.ts'
+export { SCALES, TEMPLATES, SCALE_DESCRIPTIONS } from './templates.ts'
+export type { TeamScale } from './templates.ts'

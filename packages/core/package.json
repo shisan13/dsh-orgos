@@ -1,0 +1,49 @@
+{
+  "name": "dsh-orgos-core",
+  "version": "0.1.0",
+  "description": "dsh-orgos 核心库:domain/ 纯领域内核(组织树/路由/委派状态机/scope 投影/digest/ACL,harness-agnostic)+ dsh/ 绑定层(Pro 阶段)",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./dsh": {
+      "types": "./lib/dsh/index.d.ts",
+      "default": "./lib/dsh/index.js"
+    },
+    "./dsh/*": {
+      "types": "./lib/dsh/*.d.ts",
+      "default": "./lib/dsh/*.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "presets"
+  ],
+  "license": "MIT",
+  "author": "shisan13",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-presets.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0",
+    "dsh-orgos-im-gateway": "workspace:^"
+  }
+}

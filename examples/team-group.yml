@@ -1,0 +1,51 @@
+# dsh-orgos 集团模板(team_setup init group)
+# 规模:org → bg ×2 → dept → team;BG 间默认隔离(安全设计 §4.3)
+org: acme
+nodes:
+  - id: acme
+    kind: org
+    orchestratorPosition: ceo
+    children: [bg-eng, bg-ops]
+  - id: bg-eng
+    kind: bg
+    orchestratorPosition: cto
+    children: [dept-web]
+  - id: bg-ops
+    kind: bg
+    children: [dept-ops]
+  - id: dept-web
+    kind: dept
+    children: [team-front]
+  - id: dept-ops
+    kind: dept
+    children: [team-ops]
+  - id: team-front
+    kind: team
+    orchestratorPosition: frontend-lead
+    children: []
+  - id: team-ops
+    kind: team
+    children: []
+positions:
+  - id: ceo
+    title: 集团总裁
+    occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
+  - id: cto
+    title: CTO
+    occupant: { kind: agent, preset: orgos-orchestrator-bg }
+  - id: frontend-lead
+    title: 前端组长
+    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+  - id: fe-1
+    title: 前端工程师
+    teamId: team-front
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: ops-1
+    title: 运维
+    teamId: team-ops
+    occupant: { kind: human, im: { channel: feishu, userId: ou_ops_user_id } }
+routes:
+  - { channel: feishu, peerId: oc_your_group_id, target: acme }
+acl:
+  delegationDepthMax: 3
+  memberConcurrencyMax: 2

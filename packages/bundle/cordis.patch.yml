@@ -1,0 +1,53 @@
+# dsh-orgos bundle 层(host composition)。依赖 @deepseek-ai/dsh-base 提供的
+# session/agents/agentPresets/credentials/tools 等 host 服务。
+#
+# 行按 id 插入;用户可在 profile cordis.patch.yml 覆盖本层任一行(官方 patch 协议)。
+# 两平面:跨会话服务(团队注册表/IM 网关)在此;工具注册在角色 preset(dsh-orgos-tools 行)。
+
+- insert:
+    # —— 团队核心:组织树/委派/邮箱/任务板/成员运行时/心跳(host 单实例)——
+    - id: team-core
+      name: 'dsh-orgos-core/dsh'
+      config:
+        stateRoot: !!js "process.env.DSH_HOME ? `${process.env.DSH_HOME}/team-state` : './.team-state'"
+        ownerIds: !!js "[]"            # 部署级 owner 白名单(IM 用户 id);用户 profile 层覆盖
+        allowlist: !!js "[]"
+        heartbeatIntervalMinutes: 10
+
+    # —— IM seam 网关:多通道多 bot(每个通道 = 一个 bot 实例 + 一个凭据引用)。
+    #    通道名即路由 channel;凭据键须为 POSIX 标识符(credentials 文档格式要求),
+    #    值格式 appId:appSecret。默认不含任何通道(凭据由用户写入后启用)——
+    #    用户可在 profile cordis.patch.yml 按 id 覆盖本行整段 config 启用自己的通道。 ——
+    - id: team-im-gateway
+      name: 'dsh-orgos-im-gateway/dsh'
+      config:
+        channels: !!js "{}"
+
+    # —— 飞书适配器注册(P0;凭据未配置时 fail-closed 拒启,不阻塞其余行)——
+    - id: team-im-feishu
+      name: 'dsh-orgos-im-feishu/dsh'
+
+    # —— 其余 IM 适配器(P1 disabled 模板,用户按需在 profile 层启用 + 配凭据)——
+    - id: team-im-telegram
+      name: 'dsh-orgos-im-telegram/dsh'
+      disabled: true
+    - id: team-im-wecom
+      name: 'dsh-orgos-im-wecom/dsh'
+      disabled: true
+    - id: team-im-dingtalk
+      name: 'dsh-orgos-im-dingtalk/dsh'
+      disabled: true
+    - id: team-im-slack
+      name: 'dsh-orgos-im-slack/dsh'
+      disabled: true
+    - id: team-im-discord
+      name: 'dsh-orgos-im-discord/dsh'
+      disabled: true
+    - id: team-im-whatsapp
+      name: 'dsh-orgos-im-whatsapp/dsh'
+      disabled: true
+
+    # —— team-ui Client 半(M2;团队室页签,disabled 模板,验收期启用)——
+    - id: team-ui
+      name: 'dsh-orgos-ui/client'
+      disabled: true

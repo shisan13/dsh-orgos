@@ -1,0 +1,25 @@
+# dsh-orgos 小组模板(team_setup init small)
+# 规模:org → team → positions;1 个 orchestrator + 2 个执行岗位(1 人类 + 1 agent)
+org: my-team
+nodes:
+  - id: my-team
+    kind: org
+    orchestratorPosition: lead
+    children: []
+positions:
+  - id: lead
+    title: 组长
+    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+  - id: coder-1
+    title: 工程师
+    teamId: my-team
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: reviewer-1
+    title: 评审
+    teamId: my-team
+    occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
+routes:
+  - { channel: feishu, peerId: oc_your_group_id, target: my-team }
+acl:
+  delegationDepthMax: 3
+  memberConcurrencyMax: 2

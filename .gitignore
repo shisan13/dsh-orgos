@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+
+# build output
+lib/
+dist/
+*.tsbuildinfo
+
+# dsh runtime state (never committed)
+.team-state/
+.sessions/
+.skills-cache/
+
+# secrets / credentials — NEVER commit
+*.secrets.json
+.credentials.yaml
+.env
+.env.*
+
+# os
+.DS_Store
+
+# logs
+*.log
+
+# pnpm store (local cache, never commit)
+.pnpm-store/
+
+# probe artifacts
+.team-state-probe/
+.team-state-check/
+
+# compiled artifacts must never land in src
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+
+# build-time asset copy (seeder 播种源)
+packages/core/presets/
+# coverage reports (never commit)
+coverage/

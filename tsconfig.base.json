@@ -1,0 +1,26 @@
+{
+  // dsh-orgos monorepo 共享 TypeScript 基线(仿官方 deepseek-harness tsconfig.base.json,
+  // 但面向第三方 monorepo 简化:不引入 composite/declarationMap/tsdown)。
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2024"],
+    "declaration": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "types": ["node"]
+  }
+}

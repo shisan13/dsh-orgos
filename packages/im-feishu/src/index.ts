@@ -1,0 +1,11 @@
+/** dsh-orgos-im-feishu 导出入口(纯协议层,harness-agnostic) */
+export { larkEventToMessage } from './events.ts'
+export type { LarkEventResult } from './events.ts'
+export { renderCard, renderApprovalCard, renderQuestionCard, renderTaskCard } from './cards.ts'
+export type { AnyCard, LarkCardJson } from './cards.ts'
+export { segmentText, convertTables, convertLatex, splitByLength } from './format.ts'
+export type { SegmentOptions, TextSegment } from './format.ts'
+export { BackoffPolicy } from './backoff.ts'
+export type { BackoffOptions } from './backoff.ts'
+export { FeishuAdapter } from './FeishuAdapter.ts'
+export type { FeishuAdapterOptions, FeishuCredentials, FeishuTransport } from './FeishuAdapter.ts'

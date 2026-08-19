@@ -1,0 +1,19 @@
+{
+  "name": "dsh-orgos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness 上的组织操作系统:IM 路由 + 常驻团队 + 绝不 DIY 调度哲学,人机混合组织的开源插件",
+  "license": "MIT",
+  "author": "shisan13",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

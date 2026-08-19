@@ -1,0 +1,12 @@
+/** dsh-orgos-im-wecom 导出入口(纯协议层,harness-agnostic) */
+export { signature, verifySignature, decrypt, encrypt, verifyUrl, WecomCryptoError } from './crypto.ts'
+export type { WecomCryptoConfig } from './crypto.ts'
+export { parseXmlTags, xmlTag, wrapVerifyXml } from './xml.ts'
+export { wecomXmlToMessage, parseEventKey } from './events.ts'
+export type { WecomEventResult } from './events.ts'
+export { renderCard, renderApprovalCard, renderQuestionCard, renderTaskCard } from './cards.ts'
+export type { AnyCard, WecomCardPayload, WecomTemplateCard } from './cards.ts'
+export { segmentText, convertTables, convertLatex, splitByLength, WECOM_MAX } from './format.ts'
+export type { SegmentOptions, TextSegment } from './format.ts'
+export { WecomAdapter, signatureOf } from './WecomAdapter.ts'
+export type { WecomAdapterOptions, WecomCredentials, WecomSendTransport, WecomWebhookRequest, WecomWebhookResponse } from './WecomAdapter.ts'

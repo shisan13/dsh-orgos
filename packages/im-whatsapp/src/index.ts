@@ -1,0 +1,10 @@
+/** dsh-orgos-im-whatsapp 导出入口(纯协议层,harness-agnostic) */
+export { computeHubSignature, verifyWebhookSignature } from './verify.ts'
+export { whatsappWebhookToMessages, parseButtonId } from './events.ts'
+export type { WhatsappEventResult } from './events.ts'
+export { renderCard } from './cards.ts'
+export type { AnyCard, WhatsappButton, WhatsappCardPayload } from './cards.ts'
+export { segmentText, convertTables, convertLatex, splitByLength, WHATSAPP_MAX } from './format.ts'
+export type { SegmentOptions, TextSegment } from './format.ts'
+export { WhatsappAdapter } from './WhatsappAdapter.ts'
+export type { WhatsappAdapterOptions, WhatsappCredentials, WhatsappSendTransport, WhatsappWebhookRequest, WhatsappWebhookResponse } from './WhatsappAdapter.ts'

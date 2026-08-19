@@ -1,0 +1,44 @@
+# dsh-orgos 部门模板(team_setup init dept)
+# 规模:org → dept → team ×2;每 team 一个 orchestrator,混合占位
+org: my-org
+nodes:
+  - id: my-org
+    kind: org
+    orchestratorPosition: dept-head
+    children: [dept-eng]
+  - id: dept-eng
+    kind: dept
+    children: [team-front, team-backend]
+  - id: team-front
+    kind: team
+    orchestratorPosition: frontend-lead
+    children: []
+  - id: team-backend
+    kind: team
+    orchestratorPosition: backend-lead
+    children: []
+positions:
+  - id: dept-head
+    title: 部门主管
+    occupant: { kind: agent, preset: orgos-orchestrator-manager }
+  - id: frontend-lead
+    title: 前端组长
+    occupant: { kind: agent, preset: orgos-orchestrator-lead }
+  - id: backend-lead
+    title: 后端组长
+    occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
+  - id: fe-1
+    title: 前端工程师
+    teamId: team-front
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: be-1
+    title: 后端工程师
+    teamId: team-backend
+    occupant: { kind: agent, preset: orgos-coder }
+routes:
+  - { channel: feishu, peerId: oc_your_group_id, target: my-org }
+acl:
+  allowCrossTeam:
+    - { from: team-front, to: team-backend, scopes: [note, result] }
+  delegationDepthMax: 3
+  memberConcurrencyMax: 2
