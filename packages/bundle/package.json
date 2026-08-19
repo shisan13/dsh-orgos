@@ -21,7 +21,8 @@
     "dsh-orgos-im-dingtalk": "workspace:^",
     "dsh-orgos-im-slack": "workspace:^",
     "dsh-orgos-im-discord": "workspace:^",
-    "dsh-orgos-im-whatsapp": "workspace:^"
+    "dsh-orgos-im-whatsapp": "workspace:^",
+    "dsh-orgos-doc-feishu": "workspace:^"
   },
   "dsh": {
     "bundle": {

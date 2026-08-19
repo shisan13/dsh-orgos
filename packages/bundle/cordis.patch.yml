@@ -47,6 +47,11 @@
       name: 'dsh-orgos-im-whatsapp/dsh'
       disabled: true
 
+    # —— 文档 provider(M3;飞书多维表格,disabled 模板,验收期启用)——
+    - id: team-doc-feishu
+      name: 'dsh-orgos-doc-feishu/dsh'
+      disabled: true
+
     # —— team-ui Client 半(M2;团队室页签,disabled 模板,验收期启用)——
     - id: team-ui
       name: 'dsh-orgos-ui'
