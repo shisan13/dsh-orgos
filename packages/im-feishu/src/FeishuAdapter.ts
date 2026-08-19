@@ -45,6 +45,8 @@ export interface FeishuAdapterOptions {
   backoff?: BackoffPolicy
   /** 通道标识(多 bot 实例化时区分;默认 'feishu') */
   channel?: string
+  /** 可观测调试钩子(规范化失败/去重等,绑定层写 marker 用) */
+  onDebug?: (message: string) => void
 }
 
 export class FeishuAdapter implements ImAdapter {
@@ -149,7 +151,10 @@ export class FeishuAdapter implements ImAdapter {
   /** 入站:规范化 → 覆盖实例通道名 → 去重 → 回调(回调异常隔离,不冲垮 SDK 事件循环) */
   private handleEvent(payload: unknown): void {
     const result = larkEventToMessage(payload, this.selfOpenId())
-    if (!result.ok) return
+    if (!result.ok) {
+      this.opts.onDebug?.(`normalize-fail: ${result.reason}`)
+      return
+    }
     // 多通道实例:规范化器默认 channel='feishu',覆盖为实例通道名(feishu-main 等),
     // 否则路由精确匹配与回送寻址都会错位(实测回退命中+adapter=false)。
     const msg = { ...result.msg, channel: this.channel }

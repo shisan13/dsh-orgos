@@ -107,6 +107,25 @@ describe('Given 卡片渲染(§4.7.1/§9.3;T6 一次性)', () => {
     ])
   })
 
+  it('Given 卡片回调 value 双重字符串编码(飞书实测行为) When 规范化 Then 正确解包', () => {
+    const inner = JSON.stringify({ approvalId: 'ap_2', action: 'allow' })
+    const doubleEncoded = JSON.stringify(inner) // "\"{\"approvalId\":...}\"" 等价物
+    const raw = {
+      header: { event_type: 'card.action.trigger' },
+      event: {
+        operator: { open_id: 'ou_x' },
+        action: { value: doubleEncoded },
+        context: { open_chat_id: 'oc_g', open_message_id: 'om_m' },
+      },
+    }
+    const result = larkEventToMessage(raw)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.msg.kind).toBe('approval_reply')
+      expect(result.msg.approval).toEqual({ approvalId: 'ap_2', action: 'allow' })
+    }
+  })
+
   it('When 任务卡 Then 接受/拒绝/完成汇报 + 截止时间', () => {
     const card = renderTaskCard({ kind: 'task', taskId: 't_1', title: '实现登录页', body: '需求…', actions: ['accept', 'reject', 'report'], deadlineAt: Date.UTC(2026, 7, 20) })
     const actions = card.elements[1] as { actions: { value: Record<string, string> }[] }

@@ -45,6 +45,11 @@ export function apply(ctx: Ctx): void {
         transport: createLarkTransport(credentials),
         onInbound: handlers.onInbound,
         onConnection: handlers.onConnection,
+        onDebug: (message) => {
+          try {
+            appendFileSync('/tmp/orgos-gateway.markers.log', `${new Date().toISOString()} adapter-debug ${message}\n`)
+          } catch { /* ignore */ }
+        },
       })
     },
   })
@@ -82,7 +87,7 @@ function createLarkTransport(credentials: FeishuCredentials): FeishuTransport {
           }
           try {
             appendFileSync('/tmp/orgos-gateway.markers.log',
-              `${new Date().toISOString()} sdk-card-event value=${JSON.stringify((flat.action as Record<string, unknown> | undefined)?.value ?? '').slice(0, 120)}
+              `${new Date().toISOString()} sdk-card-value RAW=${String((flat.action as Record<string, unknown> | undefined)?.value)}
 `)
           } catch { /* ignore */ }
           cb.onEvent(envelope)

@@ -108,12 +108,15 @@ function cardActionToMessage(raw: unknown): LarkEventResult {
   if (typeof openId !== 'string' || value === undefined || value === null) {
     return { ok: false, reason: '卡片回调缺少 operator.open_id / action.value' }
   }
-  // 飞书契约:按钮 value 是字符串;兼容对象形态(历史/测试)
-  if (typeof value === 'string') {
+  // 飞书契约:按钮 value 是字符串,且平台会额外做字符串编码(实测双重引号);
+  // 循环解包最多 3 层(字符串 → JSON 字符串 → 对象)。
+  let depth = 0
+  while (typeof value === 'string' && depth < 3) {
     try {
       value = JSON.parse(value) as unknown
+      depth += 1
     } catch {
-      return { ok: false, reason: '卡片 value 不是合法 JSON' }
+      break
     }
   }
   if (typeof value !== 'object' || value === null) {
@@ -122,10 +125,11 @@ function cardActionToMessage(raw: unknown): LarkEventResult {
   const v = value as Record<string, unknown>
   const approvalId = v.approvalId
   const actionName = v.action
-  const chatId = context?.open_chat_id
-  const messageId = context?.open_message_id
+  // 兼容各版本字段名:open_chat_id/chat_id;open_message_id/message_id
+  const chatId = context?.open_chat_id ?? context?.chat_id
+  const messageId = context?.open_message_id ?? context?.message_id
   if (typeof chatId !== 'string' || typeof messageId !== 'string') {
-    return { ok: false, reason: '卡片回调缺少 context(open_chat_id/open_message_id)' }
+    return { ok: false, reason: `卡片回调缺少 context 聊天/消息 id(现有键:${context ? Object.keys(context).join(',') : '无 context'})` }
   }
   const msg: NormalizedMessage = {
     channel: 'feishu',
