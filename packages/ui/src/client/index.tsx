@@ -117,6 +117,8 @@ function TeamRoomView(): unknown {
   const failed = delegations.filter((d) => ['failed', 'failed-final', 'timeout'].includes(d.status)).length
   const tasks = data.tasks ?? []
   const openTasks = tasks.filter((t) => t.status === 'open' || t.status === 'claimed').length
+  // 岗位 id → 团队室显示名(title 优先),委派单/任务板与岗位区显示一致,消除歧义
+  const titleOf = (positionId: string): string => data.positions.find((p) => p.id === positionId)?.title ?? positionId
   return createElement(
     'div',
     { style: { padding: 24, display: 'flex', flexDirection: 'column', gap: 16, color: T.text } },
@@ -158,7 +160,7 @@ function TeamRoomView(): unknown {
             createElement(
               'div',
               { key: d.id, style: { display: 'flex', gap: 8, fontSize: 13, alignItems: 'center' } },
-              createElement('span', { style: { minWidth: 88, color: T.text2 } }, d.brief?.target ?? ''),
+              createElement('span', { style: { minWidth: 88, color: T.text2 } }, d.brief?.target !== undefined ? titleOf(d.brief.target) : ''),
               createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, d.brief?.task ?? d.id),
               createElement('span', {
                 style: { color: DELEGATION_STATUS_VIEW[d.status]?.color ?? T.text2 },
@@ -180,7 +182,7 @@ function TeamRoomView(): unknown {
             createElement(
               'div',
               { key: t.id, style: { display: 'flex', gap: 8, fontSize: 13, alignItems: 'center' } },
-              createElement('span', { style: { minWidth: 88, color: T.text2 } }, t.assignee),
+              createElement('span', { style: { minWidth: 88, color: T.text2 } }, titleOf(t.assignee)),
               createElement('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t.title),
               createElement('span', {
                 style: { color: TASK_STATUS_VIEW[t.status]?.color ?? T.text2 },
