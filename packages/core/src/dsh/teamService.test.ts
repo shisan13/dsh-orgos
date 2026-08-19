@@ -288,6 +288,14 @@ describe('TeamService(绑定层)', () => {
     const report = service.runReport('lead')
     expect(report.runs.length).toBeGreaterThanOrEqual(2)
     expect(report.summary).toContain('完成 1')
+    expect(report.summary).toContain('委派单:在途 0 · 完成 1 · 失败 0')
+  })
+
+  it('GIVEN 在途委派单 WHEN runReport THEN 在途口径来自委派单而非事件流', () => {
+    const created = service.delegate('lead', 'reviewer-1', { task: '分析', requirements: ['r1'], acceptance: ['a1'] })
+    expect(created.ok).toBe(true)
+    const report = service.runReport('lead')
+    expect(report.summary).toContain('委派单:在途 1')
   })
 
   it('GIVEN /run 命令入站 WHEN handleInbound THEN 直接回发摘要不投递成员', async () => {

@@ -195,11 +195,15 @@ export class TeamService {
       const pos = String(r.positionId ?? r.toPositionId ?? '')
       return pos === '' || pos === viewer || this.org?.isAncestor(this.org.nodeOfPosition(viewer), this.org.nodeOfPosition(pos))
     })
-    const completed = all.filter((r) => r.op === 'settle' && r.outcome === 'completed').length
-    const failed = all.filter((r) => r.op === 'settle' && r.outcome === 'failed').length
+    // 事件轨迹(runs 流)与业务事实(委派单)分口径统计,避免「委派单 2 张但事件 0 条」的困惑
+    const count = (op: string): number => all.filter((r) => r.op === op).length
+    const units = this.delegation?.snapshot() ?? []
+    const inFlight = units.filter((d) => ['queued', 'dispatched', 'running', 'escalated'].includes(d.status)).length
+    const completed = units.filter((d) => d.status === 'completed').length
+    const failed = units.filter((d) => ['failed', 'failed-final', 'timeout'].includes(d.status)).length
     return sanitizeJson({
       runs,
-      summary: `运行记录 ${runs.length} 条(近 ${all.length} 条内):完成 ${completed} / 失败 ${failed} / 委派 ${all.filter((r) => r.op === 'delegation').length}`,
+      summary: `运行记录 ${runs.length} 条(近 ${all.length} 条内):入站 ${count('inbound')} · 审批 ${count('approval')} · 委派事件 ${count('delegation')} · 回执 ${count('settle')} | 委派单:在途 ${inFlight} · 完成 ${completed} · 失败 ${failed}`,
     }) as { runs: Array<Record<string, unknown>>; summary: string }
   }
 
@@ -447,7 +451,7 @@ export class TeamService {
     checks.push({
       name: 'members',
       ok: this.members.size > 0,
-      detail: `${this.members.size} 岗位 · 状态:${[...this.memberStatus.entries()].map(([k, v]) => `${k}=${v}`).join(', ') || '全部离线(未激活,派发时自动激活)'}`,
+      detail: `${this.members.size} 岗位 · 状态:${[...this.memberStatus.entries()].map(([k, v]) => `${k}=${v}`).join(', ') || '全部待命(未激活,派发时自动唤醒)'}`,
     })
     checks.push({
       name: 'delegations',
@@ -527,7 +531,7 @@ export function serializeTeamConfig(c: TeamConfig): string {
     lines.push(`    kind: ${n.kind}`)
     if (n.title !== undefined) lines.push(`    title: ${n.title}`)
     if (n.orchestratorPosition !== undefined) lines.push(`    orchestratorPosition: ${n.orchestratorPosition}`)
-    if (n.children.length > 0) lines.push(`    children: [${n.children.join(', ')}]`)
+    if (n.children?.length) lines.push(`    children: [${n.children.join(', ')}]`)
   }
   lines.push('positions:')
   for (const pos of c.positions) {
