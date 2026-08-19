@@ -72,6 +72,21 @@ function createLarkTransport(credentials: FeishuCredentials): FeishuTransport {
           } catch { /* ignore */ }
           cb.onEvent(envelope)
         },
+        // 卡片按钮回调:审批/任务/决策卡的点击答复(200672 修复核心——
+        // 此前未注册该事件,按钮点击无人处理)
+        'card.action.trigger': (data: unknown) => {
+          const flat = (data ?? {}) as Record<string, unknown>
+          const envelope = {
+            header: { event_type: 'card.action.trigger' },
+            event: flat,
+          }
+          try {
+            appendFileSync('/tmp/orgos-gateway.markers.log',
+              `${new Date().toISOString()} sdk-card-event value=${JSON.stringify((flat.action as Record<string, unknown> | undefined)?.value ?? '').slice(0, 120)}
+`)
+          } catch { /* ignore */ }
+          cb.onEvent(envelope)
+        },
       })
       await wsClient.start({ eventDispatcher: dispatcher })
       const botOpenId = await fetchBotOpenId(credentials)
