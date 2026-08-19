@@ -27,5 +27,9 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shisan13/dsh-orgos.git"
   }
 }

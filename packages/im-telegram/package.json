@@ -39,5 +39,9 @@
     "@vitest/coverage-v8": "^4.0.0",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shisan13/dsh-orgos.git"
   }
 }

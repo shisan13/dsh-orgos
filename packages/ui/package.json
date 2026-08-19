@@ -45,5 +45,9 @@
   },
   "peerDependencies": {
     "react": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shisan13/dsh-orgos.git"
   }
 }

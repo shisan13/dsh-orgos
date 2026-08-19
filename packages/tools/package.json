@@ -38,5 +38,9 @@
     "typescript": "^5.9.0",
     "vitest": "^4.0.0",
     "dsh-orgos-core": "workspace:^"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shisan13/dsh-orgos.git"
   }
 }
