@@ -32,6 +32,7 @@ import {
 import type { NormalizedMessage } from 'dsh-orgos-im-gateway'
 import { SessionMemberRuntime, type MemberDef, type DshAgents, type AgentPresetsMount, type AgentDefaultModelLike } from './memberRuntime.js'
 import { atomicWriteTeamYml, createFileTeamStore, readTeamYml, type TeamStore } from './store.js'
+import type { DocumentProvider, OrgFederation } from './extensions.js'
 
 export interface TeamServiceOptions {
   stateRoot: string
@@ -46,6 +47,8 @@ export interface TeamServiceOptions {
   /** 出站卡片(审批/任务/决策卡;由 im-gateway 绑定层注入) */
   outboundCard?: (target: { channel: string; peer: { kind: 'group' | 'direct'; id: string } }, card: unknown) => void
   emit?: (event: string, payload: Record<string, unknown>) => void
+  /** 存储 provider 注入点(扩展面):默认 JSONL 文件存储;集团期换 SQLite provider,数据格式不变 */
+  store?: TeamStore
 }
 
 export interface TeamSnapshot {
@@ -76,9 +79,31 @@ export class TeamService {
   private readonly lastRoute = new Map<string, { channel: string; peer: { kind: 'group' | 'direct'; id: string } }>()
   /** 成员状态折叠(agent/status + 成员后端事件 → offline/idle/busy/failed) */
   private readonly memberStatus = new Map<string, string>()
+  /** 扩展面:文档 provider registry(P2 起实装 provider) */
+  private readonly documentProviders = new Map<string, DocumentProvider>()
+  /** 扩展面:集团联邦(集团期注入;200 人期无) */
+  private federation: OrgFederation | undefined
+  /** 扩展面:团队事件订阅者(稳定 API,与 DSH 事件总线解耦) */
+  private readonly teamEventListeners = new Set<(event: string, payload: Record<string, unknown>) => void>()
 
   constructor(readonly options: TeamServiceOptions) {
-    this.store = createFileTeamStore(options.stateRoot)
+    // 存储 provider 注入点:默认 JSONL;SQLite/联邦后端插拔替换,数据记录格式不变
+    this.store = options.store ?? createFileTeamStore(options.stateRoot)
+    // 事件通知收敛:内部订阅者先于上游(DSH 事件总线)收到
+    const upstreamEmit = options.emit
+    this.options = {
+      ...options,
+      emit: (event, payload) => {
+        for (const listener of this.teamEventListeners) {
+          try {
+            listener(event, payload)
+          } catch {
+            /* 订阅者异常不阻断事件流(可观测性由 team_doctor 覆盖) */
+          }
+        }
+        upstreamEmit?.(event, payload)
+      },
+    }
     this.memberRuntime = new SessionMemberRuntime(
       options.agents,
       options.presets,
@@ -665,7 +690,40 @@ export class TeamService {
       ok: markers.length >= 0,
       detail: `状态目录 ${this.store.stateRoot()} 可写`,
     })
+    checks.push({
+      name: 'federation',
+      ok: true,
+      detail: this.federation ? `联邦已接入:${this.federation.nodeId}` : '联邦未接入(单实例运行;集团期经 setFederation 启用)',
+    })
     return { checks }
+  }
+
+  /** 扩展面:注册文档 provider(返回 disposer;同 id 覆盖为幂等更新) */
+  registerDocumentProvider(provider: DocumentProvider): () => void {
+    this.documentProviders.set(provider.id, provider)
+    this.options.emit?.('team/document-provider-registered', { id: provider.id, label: provider.label })
+    return () => {
+      this.documentProviders.delete(provider.id)
+    }
+  }
+
+  /** 扩展面:列出已注册文档 provider(可观测) */
+  listDocumentProviders(): Array<{ id: string; label: string }> {
+    return [...this.documentProviders.values()].map((p) => ({ id: p.id, label: p.label }))
+  }
+
+  /** 扩展面:注入集团联邦(集团期启用;200 人期保持 undefined) */
+  setFederation(federation: OrgFederation | undefined): void {
+    this.federation = federation
+    this.options.emit?.('team/federation-set', { nodeId: federation?.nodeId ?? null })
+  }
+
+  /** 扩展面:订阅团队事件流(返回 disposer) */
+  onTeamEvent(listener: (event: string, payload: Record<string, unknown>) => void): () => void {
+    this.teamEventListeners.add(listener)
+    return () => {
+      this.teamEventListeners.delete(listener)
+    }
   }
 
   /** 配置管理(team_setup init;FR-X5 安全流程:备份 → 校验 → 应用 → 失败回滚)。
@@ -721,6 +779,10 @@ export type TeamServiceFacade = Pick<
   | 'memorySave'
   | 'memoryList'
   | 'replaceOccupant'
+  | 'registerDocumentProvider'
+  | 'listDocumentProviders'
+  | 'setFederation'
+  | 'onTeamEvent'
 >
 
 /** 回复回送回路:查成员最近入站来源 */

@@ -40,13 +40,28 @@ dsh plugin add dsh-orgos
 - **Everything is a plugin**:能力全部是 Cordis 插件行,经组合包(bundle)`cordis.patch.yml` 层插入,零 fork、零侵入;
 - **两平面**:跨会话服务(团队注册表/IM 网关/邮箱/任务板)在 host composition;角色人格/工具在 agent preset(自动播种到用户目录,绝不触碰 shipped 预设);
 - **Capability seams**:IM 适配器为 seam(统一 `MessageGateway` + per-IM provider),新 IM 一个包接入;成员运行时(MemberBackend)同样为 seam,agent 与 human 是两种后端;
-- **事件驱动**:一切经 DSH 事件流衔接,团队自有 `team/*` 命名空间。
+- **事件驱动**:一切经 DSH 事件流衔接,团队自有 `team/*` 命名空间;
+- **插件的插件**:orgos 的扩展点就是普通 DSH 插件行——`ctx.get('teamService')` 拿到 [Orgos Extension API](packages/core/src/dsh/extensions.ts)(文档 provider registry / 集团联邦注入 / 团队事件订阅 / 存储 provider 注入点),第三方能力(Jira/日历/CRM/文档库)独立包 + cordis 行启用,写法与给 DSH 写插件零差异。
+
+## 规模目标与演进路径
+
+**近期目标:200 人团队开箱即用**。组织模型(org→bg→dept→team→岗位任意深度)、
+协调机制(六条流 + 每层折叠摘要 + 委派深度≤3)与成员懒激活按此规模验证;
+JSONL 存储对 200 人规模富余,留待集团期切换。
+
+**集团级演进(接口化先行,升级 = 换 provider 不重写)**:
+
+| 演进点 | 接口(已定义) | 实现期 |
+|--------|--------------|--------|
+| 存储引擎 | `TeamStore`(JSONL 默认;SQLite provider 插拔,数据格式不变) | P2 |
+| 文档协作 | `DocumentProvider` seam(飞书云文档/多维表格/钉钉/企微/Notion/Confluence,与 IM adapter 同模式) | P2 起 |
+| 跨实例联邦 | `OrgFederation`(每 BG 一个 host 实例,根 orchestrator 跨实例委派/折叠/心跳) | M3+ |
 
 ## 目录
 
 ```
 packages/
-├── core/          # domain/(纯领域内核,harness-agnostic)+ dsh/(DSH 绑定层)
+├── core/          # domain/(纯领域内核,harness-agnostic)+ dsh/(DSH 绑定层 + 扩展面)
 ├── im-gateway/    # MessageGateway seam + 消息规范化
 ├── im-feishu/     # 飞书适配器(WS 长连接,已实测)
 ├── im-telegram/ wecom/ dingtalk/ slack/ discord/ whatsapp/
@@ -61,8 +76,9 @@ examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
 | 阶段 | 状态 |
 |------|------|
 | M1 核心 + 飞书 + 双端实跑 | ✅ 完成 |
-| M2 全 IM + 审批 + Run 数据 + 三层记忆 + 知识交接 | 🔨 进行中(代码与测试齐;剩:各 IM 真实凭据联调——telegram/whatsapp/slack/discord/钉钉/企微) |
-| M3 集团治理 + 发布 | 🔲 计划中 |
+| M2 全 IM + 审批 + Run 数据 + 三层记忆 + 知识交接 + 扩展面接口 | 🔨 进行中(代码与测试齐;剩:各 IM 真实凭据联调——telegram/whatsapp/slack/discord/钉钉/企微) |
+| M3 200 人实跑 + SQLite + 文档 provider + 发布 | 🔲 计划中 |
+| M4 集团联邦 + 多租户 + 审计 | 🔲 规划预留(接口已定义) |
 
 ## 贡献
 
