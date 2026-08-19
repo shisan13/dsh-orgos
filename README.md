@@ -2,7 +2,7 @@
 
 > **DeepSeek Harness 上的组织操作系统** —— 把「IM 路由 + 常驻团队 + 绝不 DIY 调度哲学」三者合一,人机混合组织的开源插件。
 
-dsh-orgos 让你在 DeepSeek Harness(DSH)之上构建并运营一支**组织化团队**:虚拟员工(agent)与人类员工同处一张组织树,IM 是入口,调度有纪律,规模从小队到多 BG 集团一套模型。
+dsh-orgos 让你在 DeepSeek Harness(DSH)之上构建并运营一支**组织化团队**:虚拟员工(agent)与人类员工同处一张组织树,IM 是入口,调度有纪律,从几人的小队到多 BG 集团,一套模型覆盖全部规模。
 
 ## 它能做什么
 
@@ -15,6 +15,88 @@ dsh-orgos 让你在 DeepSeek Harness(DSH)之上构建并运营一支**组织化�
 | **组织信息流** | 委派/回执/协作/公告/记忆/心跳六条流;五维 scope(视野/权限/工具/记忆/订阅)服务端强制;三层记忆(私有/团队/集团) |
 | **IM 审批** | 成员执行敏感操作 → IM 卡片审批(允许/拒绝),超时 fail-closed |
 | **可观测** | `team_status`/`team_doctor`/`team_run` 工具、`/run` 命令、HTTP 快照、运行记录 |
+
+## 架构设计:能力从哪来,长期往哪走
+
+上述每一项能力都不是孤立堆砌,而是同一套架构的必然产物。设计的立足点很朴素:
+**今天能跑起来的,不因规模增长而推倒重来**——一套模型覆盖小组到集团,
+规模升级走"换 provider、不重写"的路径。
+
+### 能力与结构的对应
+
+| 能力 | 支撑它的架构设计 |
+|------|------------------|
+| 多 IM 通道、多 bot 同群 | `MessageGateway` seam:每 IM 一个独立 adapter 包,统一消息规范化 |
+| 常驻团队、任意深度组织树 | 纯领域内核(domain/):组织树/路由/ACL 与 DSH 解耦,声明式驱动 |
+| 绝不 DIY 调度、失败重派 | 委派状态机(queued→dispatched→running→completed/failed→重派≤3),确定性状态流转 |
+| 人机混合、替换即演进 | 岗位与占位者分离:岗位是稳定实体,占位者(agent/human)是可替换后端 |
+| 六条流、五维 scope、三层记忆 | 服务端强制投影:工具只拿得到自己权限内的数据,过滤是机制不是提示词 |
+| IM 审批 fail-closed | 审批瀑布流挂成员会话,卡片回执答复,10 分钟无响应自动拒绝 |
+| 可观测 | 六条流即事实日志(runs/mailbox/delegations/memory),快照与医生诊断直接从日志投影 |
+
+### 一条主线:一套模型,三种规模
+
+组织树 `org → bg → dept → team → 岗位` 任意深度,三种规模只是同一棵树的三种形态:
+
+- 小组 = org → team(几人即可生效);
+- 部门/公司 = org → dept → team ×N;
+- 集团 = org → bg → dept → team(多 BG 联邦)。
+
+协调机制与规模无关:每层可选配 orchestrator(有则委派下达,无则上抛);
+回执沿父链**逐层 digest 折叠**(成员报告 → 团队 → 部门 → BG → 集团,上层只见结论);
+成员**懒激活**(待命零常驻成本,派发时自动唤醒)。
+这三条让"加一层组织"只是加配置,不是加复杂度。
+
+### 分层内核:领域与宿主解耦
+
+```
+packages/core/
+├── domain/   # 纯领域内核:组织树/路由/委派状态机/scope 投影/digest/记忆
+│             # 零 DSH 依赖、零 Node IO —— 换宿主(其他 harness/框架)内核可整体移植
+└── dsh/      # DSH 绑定层:TeamService/成员运行时/持久化/扩展面(薄,只做环境接线)
+```
+
+领域内核回答"组织如何运转",绑定层回答"如何在 DSH 上落地"。
+所有单测的 80%+ 覆盖在领域内核上,换宿主时核心逻辑的验证跟着走。
+
+### Capability seams:外部依赖全部可插拔
+
+每一条外部依赖都收敛为接口,实现是可插拔的 provider:
+
+| seam | 现状 | 长期演进 |
+|------|------|----------|
+| `MessageGateway`(IM 通道) | 6 个 adapter 已实现(飞书已实测) | 新 IM 一个包接入 |
+| `TeamStore`(存储引擎) | JSONL 文件存储(正确性优先) | SQLite provider 插拔,数据记录格式不变,迁移=一次性导入 |
+| `DocumentProvider`(文档协作) | 接口已定义 | 飞书云文档/多维表格、钉钉、企微、Notion/Confluence,与 IM adapter 同模式 |
+| `OrgFederation`(跨实例联邦) | 接口已定义 | 每 BG 一个 host 实例,根 orchestrator 跨实例委派/折叠/心跳 |
+| MemberBackend(成员后端) | agent 会话后端(单机) | subagent-acp / 多机成员分布,seam 设计已预留 |
+
+### 插件的插件:扩展 orgos = 给 DSH 写插件
+
+继承 DSH"一切皆是插件"的心智:**orgos 的扩展点就是普通 DSH 插件行**。
+第三方插件 `ctx.get('teamService')` 拿到 [Orgos Extension API](packages/core/src/dsh/extensions.ts):
+
+- `registerDocumentProvider` / `listDocumentProviders` —— 文档库 registry;
+- `setFederation` —— 集团联邦注入;
+- `onTeamEvent` —— 订阅团队事件流(订阅者异常不阻断事件总线);
+- `options.store` —— 存储 provider 注入点。
+
+第三方能力(Jira 对接、日历、CRM、代码平台、文档库)以独立 npm 包 + cordis 行启用,
+写法与给 DSH 写插件零差异——生态只学一套。
+
+### 数据格式即迁移契约
+
+JSONL 流记录(委派/任务/邮箱/记忆/runs)从第一天起就是稳定的、可重放的事实日志:
+冷启动靠它恢复状态,SQLite/联邦后端靠它做一次性迁移。格式不变,历史数据永远有效。
+
+### 规模相关的效率设计(当下即生效)
+
+| 设计 | 作用 | 与规模的关系 |
+|------|------|--------------|
+| 成员懒激活 | 未派发的岗位零会话、零 token | 岗位数增长不增加常驻成本 |
+| digest 折叠链 | 每层 orchestrator 只读结论 | 层级越多,上层信息量不变 |
+| scope 服务端强制投影 | 工具只拿得到自己权限内的数据 | 组织越大,信息隔离越刚需 |
+| 委派深度 ≤3 + 失败重派 | 任务有终态,不无限递归 | 防调度失控 |
 
 ## 快速开始
 
@@ -42,8 +124,8 @@ dsh plugin add dsh-orgos
 | 用户 | 推荐起点 | 组织树 | 典型玩法 |
 |------|----------|--------|----------|
 | **个人** | `scale=small`(1 组长 + 2 成员) | org→team | 手机上用 IM 指挥自己的虚拟小组;任务派发/回执/心跳全程 IM 闭环 |
-| **小团队(5~20 人)** | `scale=small` 起步,`team.yml` 加岗位 | org→team | 一个群绑到团队节点,@谁触发谁;真人成员挂 `occupant.kind: human` 直接进群协作 |
-| **大团队/公司(20~200 人)** | `scale=dept`(2 团队各带 orchestrator) | org→dept→team×N | 部门墙 + 跨部门协作 ACL;每层 orchestrator 折叠摘要;敏感操作走 IM 审批卡 |
+| **小团队** | `scale=small` 起步,`team.yml` 加岗位 | org→team | 一个群绑到团队节点,@谁触发谁;真人成员挂 `occupant.kind: human` 直接进群协作 |
+| **大团队/公司** | `scale=dept`(2 团队各带 orchestrator) | org→dept→team×N | 部门墙 + 跨部门协作 ACL;每层 orchestrator 折叠摘要;敏感操作走 IM 审批卡 |
 | **集团预演(多 BG)** | `scale=group`(org→bg×2→dept→team) | org→bg→dept→team | BG 间默认隔离;跨 BG 经 ACL 显式声明;集团根只见折叠汇总 |
 
 > `scale` 只是初始模板——任何规模起步后都可以随时编辑 `team.yml` 调整,
@@ -119,81 +201,14 @@ roles:                             # 按预设覆盖五维 scope(visibility/auth
 | **三层记忆** | `team_memory_save` 沉淀团队/集团显式提炼,`team_memory_recall` 按 scope 取回(私有记忆 = 成员 session 历史) |
 | **12 个团队工具** | delegate/status/mail×2/task×3/memory×2/setup/doctor/run,成员与调度中心共用同一套纪律 |
 
-## 架构设计:着眼当下,预留长期
+## 规模与演进路径
 
-设计的出发点是一句承诺:**现在能跑起来的每一处能力,都不因规模增长而推倒重来。**
-当前目标 = 200 人团队开箱即用;同一套模型与接口,按"换 provider、不重写"的方式逐步升级到多 BG 集团。
+**当下:开箱即用,零性能负债**。组织模型、协调机制、成员懒激活在单机部署下即可承载
+数十至数百岗位的团队;JSONL 存储为正确性与可恢复性优先,数据格式即迁移契约。
 
-### 一条主线:一套模型,三种规模
-
-组织树 `org → bg → dept → team → 岗位` 任意深度,三种规模只是同一棵树的三种形态:
-
-- 小组 = org → team(几人生效);
-- 部门/公司 = org → dept → team ×N(200 人目标);
-- 集团 = org → bg → dept → team(多 BG 联邦)。
-
-协调机制与规模无关:每层可选配 orchestrator(有则委派下达,无则上抛);
-回执沿父链**逐层 digest 折叠**(成员报告 → 团队 → 部门 → BG → 集团,上层只见结论);
-成员**懒激活**(待命零常驻成本,派发时自动唤醒)——这三条让"加一层组织"只是加配置,不是加复杂度。
-
-### 为长期预留的扩展性设计(已落地,不是 PPT)
-
-**1. 分层内核,宿主可换**
-
-```
-packages/core/
-├── domain/   # 纯领域内核:组织树/路由/委派状态机/scope 投影/digest/记忆
-│             # 零 DSH 依赖、零 Node IO —— 换宿主(其他 harness/框架)内核可整体移植
-└── dsh/      # DSH 绑定层:TeamService/成员运行时/持久化/扩展面(薄,只做环境接线)
-```
-
-**2. Capability seams:升级 = 换 provider**
-
-每一条外部依赖都收敛为接口,实现是可插拔的 provider:
-
-| seam | 现状 | 长期演进 |
-|------|------|----------|
-| `MessageGateway`(IM 通道) | 6 个 adapter 已实现(飞书已实测) | 新 IM 一个包接入 |
-| `TeamStore`(存储引擎) | JSONL 文件存储(正确性优先) | SQLite provider 插拔,**数据记录格式不变,迁移=一次性导入** |
-| `DocumentProvider`(文档协作) | 接口已定义 | 飞书云文档/多维表格、钉钉、企微、Notion/Confluence,与 IM adapter 同模式 |
-| `OrgFederation`(跨实例联邦) | 接口已定义 | 每 BG 一个 host 实例,根 orchestrator 跨实例委派/折叠/心跳 |
-| MemberBackend(成员后端) | agent 会话后端(单机) | subagent-acp / 多机成员分布,seam 设计已预留 |
-
-**3. 插件的插件:扩展 orgos = 给 DSH 写插件**
-
-继承 DSH"一切皆是插件"的心智:**orgos 的扩展点就是普通 DSH 插件行**。
-第三方插件 `ctx.get('teamService')` 拿到 [Orgos Extension API](packages/core/src/dsh/extensions.ts):
-
-- `registerDocumentProvider` / `listDocumentProviders` —— 文档库 registry;
-- `setFederation` —— 集团联邦注入;
-- `onTeamEvent` —— 订阅团队事件流(订阅者异常不阻断事件总线);
-- `options.store` —— 存储 provider 注入点。
-
-第三方能力(Jira 对接、日历、CRM、代码平台、文档库)以独立 npm 包 + cordis 行启用,
-写法与给 DSH 写插件零差异——生态只学一套。
-
-**4. 数据格式即迁移契约**
-
-JSONL 流记录(委派/任务/邮箱/记忆/runs)从第一天起就是稳定的、可重放的事实日志:
-冷启动靠它恢复状态,SQLite/联邦后端靠它做一次性迁移;
-格式不变,历史数据永远有效。
-
-**5. 规模相关的效率设计(当下即生效)**
-
-| 设计 | 作用 | 与规模的关系 |
-|------|------|--------------|
-| 成员懒激活 | 未派发的岗位零会话、零 token | 岗位数增长不增加常驻成本 |
-| digest 折叠链 | 每层 orchestrator 只读结论 | 层级越多,上层信息量不变 |
-| scope 服务端强制投影 | 工具只拿得到自己权限内的数据 | 组织越大,信息隔离越刚需 |
-| 委派深度 ≤3 + 失败重派 | 任务有终态,不无限递归 | 防大规模下调度失控 |
-
-## 规模目标与演进路径
-
-**当下:200 人团队开箱即用**。组织模型、协调机制、成员懒激活按此规模设计;
-JSONL 存储对 200 人富余,提前重写是浪费。
-
-**长期:集团级 = 换 provider**。SQLite(P2)→ 文档 provider(P2 起)→
-跨实例联邦(M3+)逐级插上,每一级都只动一个 seam,不动组织模型与领域内核。
+**长期:集团级 = 换 provider**。SQLite → 文档 provider → 跨实例联邦逐级插上,
+每一级都只动一个 seam,不动组织模型与领域内核。接口先行,实现按需——
+这正是上面「Capability seams」一节的兑现方式。
 
 ## 目录
 
@@ -215,7 +230,7 @@ examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
 |------|------|
 | M1 核心 + 飞书 + 双端实跑 | ✅ 完成 |
 | M2 全 IM + 审批 + Run 数据 + 三层记忆 + 知识交接 + 扩展面接口 | 🔨 进行中(代码与测试齐;剩:各 IM 真实凭据联调——telegram/whatsapp/slack/discord/钉钉/企微) |
-| M3 200 人实跑 + SQLite + 文档 provider + 发布 | 🔲 计划中 |
+| M3 SQLite + 文档 provider + 发布 | 🔲 计划中 |
 | M4 集团联邦 + 多租户 + 审计 | 🔲 规划预留(接口已定义) |
 
 ## 贡献
