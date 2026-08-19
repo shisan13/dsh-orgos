@@ -49,5 +49,5 @@
 
     # —— team-ui Client 半(M2;团队室页签,disabled 模板,验收期启用)——
     - id: team-ui
-      name: 'dsh-orgos-ui/client'
+      name: 'dsh-orgos-ui'
       disabled: true
