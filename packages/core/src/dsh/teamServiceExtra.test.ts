@@ -166,6 +166,18 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆/替换)'
     expect(text).toContain('委派:1(失败 0)')
   })
 
+  it('GIVEN bind 到有 title 的岗位 WHEN bindRoute THEN 返回名称一致性提示', () => {
+    const r = service.bindRoute('feishu', 'oc_new', 'lead')
+    expect(r.ok).toBe(true)
+    expect(r.hint).toContain('团队负责人')
+  })
+
+  it('GIVEN bind 到无 title 的岗位 WHEN bindRoute THEN 提示回落岗位 id', () => {
+    const r = service.bindRoute('feishu', 'oc_new2', 'coder-1')
+    expect(r.ok).toBe(true)
+    expect(r.hint).toContain('coder-1')
+  })
+
   it('GIVEN 绑定/解绑路由 WHEN bind/unbind THEN 热重载生效', () => {
     expect(service.bindRoute('feishu', 'oc_new', 'lead').ok).toBe(true)
     expect(service.bindRoute('feishu', 'oc_new', 'ghost').ok).toBe(false)

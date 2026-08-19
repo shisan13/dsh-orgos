@@ -640,14 +640,29 @@ export class TeamService {
   }
 
   /** IM 内 /bind:绑定 (channel, peerId) → 岗位(FR-X3;配置安全流程:备份→校验→应用) */
-  bindRoute(channel: string, peerId: string, target: string): { ok: boolean; reason?: string } {
+  bindRoute(channel: string, peerId: string, target: string): { ok: boolean; reason?: string; hint?: string } {
     if (!this.config) return { ok: false, reason: 'team_not_loaded' }
     if (!this.org?.hasPosition(target) && !this.org?.hasNode(target)) return { ok: false, reason: 'target_not_found' }
     const next = {
       ...this.config,
       routes: [...this.config.routes.filter((r) => !(r.channel === channel && r.peerId === peerId)), { channel, peerId, target }],
     }
-    return this.applyConfig(next)
+    const applied = this.applyConfig(next)
+    if (!applied.ok) return applied
+    // 名称一致性提示(FR-UX):IM 中机器人/群的显示名与团队室显示名保持一致的建议
+    const hint = this.nameConsistencyHint(target)
+    return hint === undefined ? { ok: true } : { ok: true, hint }
+  }
+
+  /** 绑定后的命名一致性建议:目标岗位/节点的团队室显示名 → IM 侧同名 */
+  private nameConsistencyHint(target: string): string | undefined {
+    const position = this.org?.hasPosition(target) ? this.members.get(target) : undefined
+    const node = this.org?.hasNode(target) ? this.org.node(target) : undefined
+    const posTitle = position?.title !== undefined && position.title.length > 0 ? position.title : undefined
+    const nodeTitle = node?.title !== undefined && node.title.length > 0 ? node.title : undefined
+    const displayName = posTitle ?? nodeTitle ?? (position !== undefined ? position.positionId : (node !== undefined ? node.id : undefined))
+    if (displayName === undefined) return undefined
+    return `名称一致性建议:将 IM 中对应机器人/群的显示名设为「${displayName}」,与团队室显示名保持一致(@谁触发谁按此名辨认)`
   }
 
   /** IM 内 /unbind:解绑 (channel, peerId) */
