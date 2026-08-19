@@ -8,7 +8,7 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-export type StreamName = 'registry' | 'mailbox' | 'taskboard' | 'delegations' | 'runs' | 'memory-team' | 'memory-org'
+export type StreamName = 'registry' | 'mailbox' | 'taskboard' | 'delegations' | 'runs' | `memory-${string}`
 
 export interface TeamStore {
   append(stream: StreamName, record: Record<string, unknown>): void

@@ -186,6 +186,35 @@ export function registerTeamTools(ctx: { get(key: string): unknown }, tools: Too
   })
 
   tools.register({
+    name: 'team_memory_save',
+    description:
+      "向团队/集团记忆写入显式提炼(kind: contribution 贡献/handover 交接/decision 决策/insight 洞察)。写入受 authority scope 约束:你只能写自己 scope 内的层(成员写本 team;orchestrator 按层级提炼)。私有记忆不用本工具(那是你自己的 session 历史)。",
+    parameters: toJsonSchema({
+      level: { type: 'string', required: true, description: "team | org(team 写本团队记忆;org 需集团记忆权)" },
+      kind: { type: 'string', description: 'contribution | handover | decision | insight(默认 contribution)' },
+      content: { type: 'string', required: true, description: '记忆正文(提炼后的事实/结论,不贴原始日志)' },
+      digest: { type: 'string', description: '一句话摘要(上层阅读压缩用,可选)' },
+      teamId: { type: 'string', description: 'level=team 时可指定目标团队节点(默认你所在 team;须在你管辖子树内)' },
+    }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { level: string; kind?: string; content: string; digest?: string; teamId?: string }
+      return service.memorySave(positionOf(exec), a.level as 'team' | 'org', a.kind ?? 'contribution', a.content, a.digest, a.teamId)
+    },
+  })
+
+  tools.register({
+    name: 'team_memory_recall',
+    description: '读取团队/集团记忆(结果已按你的 memory scope 强制投影:成员只见本 team;orchestrator 见管辖层)。',
+    parameters: toJsonSchema({ limit: { type: 'integer', description: '返回条数上限(默认 50)' } }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { limit?: number }
+      return service.memoryList(positionOf(exec), a.limit ?? 50)
+    },
+  })
+
+  tools.register({
     name: 'team_doctor',
     description: '团队健康诊断:配置/成员状态/委派任务板/存储四类检查,输出可执行修复建议。',
     parameters: toJsonSchema({}),

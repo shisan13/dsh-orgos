@@ -1,5 +1,5 @@
 /**
- * TeamService 补充路径测试(邮箱/任务板/心跳/human 投递/replay/序列化)
+ * TeamService 补充路径测试(邮箱/任务板/心跳/human 投递/replay/序列化/三层记忆)
  * Given-When-Then(AGENTS.md §4 闸门)。fixture 与 teamService.test.ts 保持同构。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -59,7 +59,7 @@ interface OutCall {
   text: string
 }
 
-describe('TeamService 补充路径(邮箱/任务板/human/replay)', () => {
+describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆)', () => {
   let dir: string
   let service: TeamService
   let fakeAgents: DshAgents & { registry: Map<string, FakeAgent> }
@@ -220,6 +220,55 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay)', () => {
     expect(empty.delegate('lead', 'coder-1', { task: 'x' }).ok).toBe(false)
     expect(empty.settle('coder-1', 'dlg-x', 'completed', 'x').ok).toBe(false)
     expect(empty.heartbeatReport().text).toContain('未配置')
+    expect(empty.memorySave('lead', 'team', 'contribution', 'x').ok).toBe(false)
+    expect(empty.memoryList('lead').entries).toEqual([])
+  })
+
+  describe('三层记忆流(memorySave/memoryList,§4.6.3)', () => {
+    it('GIVEN 成员写 team 层 WHEN memorySave THEN 落本 team 且本人可读回', () => {
+      const r = service.memorySave('coder-1', 'team', 'contribution', '修复构建脚本', '一句话摘要')
+      expect(r.ok).toBe(true)
+      const entry = (r as { entry: { teamId?: string } }).entry
+      expect(entry.teamId).toBe('team-main')
+      const list = service.memoryList('coder-1')
+      expect(list.entries.length).toBe(1)
+      expect(list.entries[0]?.content).toBe('修复构建脚本')
+      expect(events.some(([e]) => e === 'team/memory-saved')).toBe(true)
+    })
+
+    it('GIVEN 成员写 org 层 WHEN memorySave THEN 越权拒绝', () => {
+      const r = service.memorySave('coder-1', 'org', 'insight', '越权提炼')
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.reason).toContain('越权')
+    })
+
+    it('GIVEN 成员指定非本 team 的 teamId WHEN memorySave THEN 拒绝', () => {
+      const r = service.memorySave('coder-1', 'team', 'contribution', 'x', undefined, 'ghost-team')
+      expect(r.ok).toBe(false)
+    })
+
+    it('GIVEN 根 orchestrator 写 org 层 WHEN memoryList 按 scope 投影 THEN 成员不可见 org 条目', () => {
+      expect(service.memorySave('lead', 'org', 'decision', '集团战略').ok).toBe(true)
+      expect(service.memorySave('coder-1', 'team', 'contribution', '成员贡献').ok).toBe(true)
+      const leadList = service.memoryList('lead')
+      expect(leadList.entries.length).toBe(2)
+      const coderList = service.memoryList('coder-1')
+      expect(coderList.entries.length).toBe(1)
+      expect(coderList.entries[0]?.level).toBe('team')
+    })
+
+    it('GIVEN 记忆已持久化 WHEN 冷启动 load THEN 重放恢复', () => {
+      service.memorySave('coder-1', 'team', 'handover', '交接记录')
+      service.memorySave('lead', 'org', 'insight', '集团洞察')
+      const service2 = new TeamService({
+        stateRoot: dir,
+        ownerIds: ['ou_owner'],
+        agents: fakeAgents,
+        presets: { async mount() { return {} } },
+      })
+      expect(service2.load().loaded).toBe(true)
+      expect(service2.memoryList('lead').entries.length).toBe(2)
+    })
   })
 })
 

@@ -10,6 +10,7 @@
 import {
   DelegationEngine,
   Mailbox,
+  MemoryStore,
   OrgTree,
   RouterResolver,
   TaskBoard,
@@ -17,11 +18,14 @@ import {
   parseTeamConfig,
   projectDelegations,
   projectMail,
+  projectMemory,
   projectTasks,
+  roleScope,
   validateBrief,
   type BriefIssue,
   type BriefV1,
   type Delegation,
+  type MemoryEntry,
   type ProjectContext,
   type TeamConfig,
 } from '../domain/index.js'
@@ -51,6 +55,7 @@ export interface TeamSnapshot {
   delegations: unknown[]
   tasks: unknown[]
   mailCount: number
+  memoryCount: number
 }
 
 const ORGOS_SOURCE = { kind: 'plugin', plugin: 'dsh-orgos' } as const
@@ -62,6 +67,8 @@ export class TeamService {
   private delegation: DelegationEngine | undefined
   private mailbox: Mailbox | undefined
   private taskboard: TaskBoard | undefined
+  /** 三层记忆引擎(team/org 显式提炼层;private 在成员 session,不落此库) */
+  private readonly memory = new MemoryStore()
   readonly store: TeamStore
   private readonly memberRuntime: SessionMemberRuntime
   private readonly members = new Map<string, MemberDef>()
@@ -172,6 +179,24 @@ export class TeamService {
         /* 同上 */
       }
     }
+    // 三层记忆重放(§4.6.3):memory-<teamId> 每团队一流 + memory-org 集团流
+    for (const node of this.config?.nodes ?? []) {
+      if (node.kind !== 'team') continue
+      for (const rec of this.store.readAll(`memory-${node.id}`)) {
+        try {
+          this.memory.replay(rec as unknown as MemoryEntry)
+        } catch {
+          /* 同上 */
+        }
+      }
+    }
+    for (const rec of this.store.readAll('memory-org')) {
+      try {
+        this.memory.replay(rec as unknown as MemoryEntry)
+      } catch {
+        /* 同上 */
+      }
+    }
   }
 
   get loaded(): boolean {
@@ -232,6 +257,7 @@ export class TeamService {
       delegations: this.delegation?.snapshot() ?? [],
       tasks: this.taskboard?.list() ?? [],
       mailCount: this.mailbox?.list().length ?? 0,
+      memoryCount: this.memory.count(),
     }
   }
 
@@ -345,6 +371,68 @@ export class TeamService {
         `邮箱:${this.mailbox?.list().length ?? 0}`,
       ].join(' '),
     }
+  }
+
+  /**
+   * 记忆写入(team_memory_save 工具入口;技术设计 §4.6.3):
+   * - 写入受 authority scope 约束:写者 memory 数组必须包含目标层
+   *   (team 写要求 'team';org 写要求 'org' —— 各层 orchestrator 按 authority 提炼推送);
+   * - team 层条目落 memory-<teamId> 流,teamId 必须落在写者管辖子树内
+   *   (成员写本 team;上层 orchestrator 可提炼写入管辖 team);
+   * - org 层落 memory-org 流(BG 间默认隔离:写者须持 org 记忆权)。
+   */
+  memorySave(
+    viewerPositionId: string,
+    level: 'team' | 'org',
+    kind: string,
+    content: string,
+    digest?: string,
+    teamId?: string,
+  ): { ok: true; entry: MemoryEntry } | { ok: false; reason: string } {
+    if (!this.org || !this.config) return { ok: false, reason: 'team_not_loaded' }
+    const viewer = this.resolveViewer(viewerPositionId)
+    const scope = roleScope(this.org, viewer, this.config.roles)
+    if (!scope.memory.includes(level)) {
+      return { ok: false, reason: `记忆写入越权:岗位 ${viewer} 无 ${level} 层记忆权(memory scope: ${scope.memory.join('/')})` }
+    }
+    if (level === 'team') {
+      const target = teamId ?? this.org.nodeOfPosition(viewer)
+      if (!this.org.hasNode(target) || this.org.node(target)?.kind !== 'team') {
+        return { ok: false, reason: `teamId 必须为团队节点:${target}` }
+      }
+      // 写者管辖子树必须包含目标 team(成员写本 team;治理岗位可写管辖 team)
+      const viewerNode = this.org.nodeOfPosition(viewer)
+      if (target !== viewerNode && !this.org.isAncestor(viewerNode, target)) {
+        return { ok: false, reason: `无权写入团队 ${target} 的记忆(不在管辖子树)` }
+      }
+      teamId = target
+    }
+    const entry: MemoryEntry = {
+      id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      level,
+      teamId: level === 'team' ? teamId : undefined,
+      author: viewer,
+      kind: (['contribution', 'handover', 'decision', 'insight'].includes(kind) ? kind : 'contribution') as MemoryEntry['kind'],
+      content,
+      digest,
+      createdAt: new Date().toISOString(),
+    }
+    const inserted = this.memory.insert(entry)
+    if (!inserted.ok) return { ok: false, reason: inserted.reason }
+    this.store.append(level === 'team' ? `memory-${teamId}` : 'memory-org', { ...entry })
+    this.options.emit?.('team/memory-saved', { entry })
+    this.logRun('memory', { positionId: viewer, level, teamId: entry.teamId, kind: entry.kind })
+    return { ok: true, entry }
+  }
+
+  /** 记忆读取(team_memory_recall 工具入口):按 memory scope 服务端强制投影 */
+  memoryList(viewerPositionId: string, limit = 50): { entries: MemoryEntry[] } {
+    if (!this.org || !this.config) return { entries: [] }
+    const viewer = this.resolveViewer(viewerPositionId)
+    const ctx: ProjectContext = { tree: this.org, viewerPositionId: viewer, roles: this.config.roles }
+    const visible = projectMemory(this.memory.list(), ctx)
+    const sorted = visible.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    return sanitizeJson({ entries: sorted.slice(0, limit) }) as { entries: MemoryEntry[] }
   }
 
   /**
@@ -516,6 +604,8 @@ export type TeamServiceFacade = Pick<
   | 'bindRoute'
   | 'unbindRoute'
   | 'runReport'
+  | 'memorySave'
+  | 'memoryList'
 >
 
 /** 回复回送回路:查成员最近入站来源 */

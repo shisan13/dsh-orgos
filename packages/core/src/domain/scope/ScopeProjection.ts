@@ -226,3 +226,29 @@ export function projectDelegations<T extends { fromPositionId: string; toPositio
     return (fromNode !== undefined && geo.nodeIds.has(fromNode)) || (toNode !== undefined && geo.nodeIds.has(toNode))
   })
 }
+
+/** 记忆投影输入(与 MemoryStore 解耦;MemoryEntry 天然兼容) */
+export interface ProjectableMemory {
+  level: 'team' | 'org'
+  teamId?: string
+}
+
+/**
+ * 记忆流投影(技术设计 §4.6.3;FR-M1):
+ * - org 层:'org' ∈ memory 才可见(org 汇总只读,BG 间默认隔离);
+ * - team 层:'team' ∈ memory 且条目 teamId 在管辖子树内
+ *   (self 可见范围即本 team;治理岗位可见管辖子树内全部 team 记忆);
+ * - private 层不在团队库(成员 session 历史,永不复制)。
+ * 过滤是强制机制:工具只拿得到 scope 内的记忆。
+ */
+export function projectMemory<T extends ProjectableMemory>(entries: T[], ctx: ProjectContext): T[] {
+  const scope = roleScope(ctx.tree, ctx.viewerPositionId, ctx.roles)
+  const geo = visibilityGeometry(ctx.tree, ctx.viewerPositionId, scope)
+  return entries.filter((e) => {
+    if (e.level === 'org') return scope.memory.includes('org')
+    if (e.level !== 'team') return false
+    if (!scope.memory.includes('team')) return false
+    if (typeof e.teamId !== 'string' || !geo.nodeIds.has(e.teamId)) return false
+    return true
+  })
+}

@@ -3,7 +3,7 @@
  * 组织:acme(ceo)→ bg-eng(cto)→ dept-web → team-front(frontend-lead, 人类)/ team-backend
  */
 import { describe, expect, it } from 'vitest'
-import { projectMail, projectTasks, projectDelegations, roleScope, visibilityGeometry } from './ScopeProjection.ts'
+import { projectMail, projectTasks, projectDelegations, projectMemory, roleScope, visibilityGeometry } from './ScopeProjection.ts'
 import { OrgTree } from '../org/OrgTree.ts'
 import type { TeamConfig } from '../types.ts'
 
@@ -188,5 +188,33 @@ describe('Given 委派视图投影(FR-R3)', () => {
 
   it('When org 层查询 Then 全量', () => {
     expect(projectDelegations(delegations, ctx('ceo'))).toHaveLength(2)
+  })
+})
+
+describe('Given 记忆流投影(§4.6.3)', () => {
+  const memories = [
+    { id: 'm1', level: 'team', teamId: 'team-front', author: 'fe-1', content: '前端规范' },
+    { id: 'm2', level: 'team', teamId: 'team-backend', author: 'be-1', content: '后端规范' },
+    { id: 'm3', level: 'org', teamId: undefined, author: 'ceo', content: '集团战略' },
+  ]
+
+  it('When 执行岗位查询 Then 只见本 team 记忆(org 层不可见)', () => {
+    const out = projectMemory(memories, ctx('fe-1'))
+    expect(out.map((m) => m.id)).toEqual(['m1'])
+  })
+
+  it('When dept 上层查询 Then 见管辖子树内 team 记忆但 org 层仍不可见', () => {
+    const out = projectMemory(memories, ctx('frontend-lead'))
+    expect(out.map((m) => m.id)).toEqual(['m1'])
+  })
+
+  it('When 根 orchestrator 查询 Then team(管辖全部)+ org 全可见', () => {
+    const out = projectMemory(memories, ctx('ceo'))
+    expect(out.map((m) => m.id).sort()).toEqual(['m1', 'm2', 'm3'])
+  })
+
+  it('When 受限岗位查询 Then 记忆不可见(memory 仅 private)', () => {
+    const out = projectMemory(memories, ctx('shared-1'))
+    expect(out).toEqual([])
   })
 })
