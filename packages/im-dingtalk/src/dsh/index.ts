@@ -1,8 +1,7 @@
 /**
  * dsh-orgos-im-dingtalk 绑定层(bundle 行:name 'dsh-orgos-im-dingtalk/dsh')
- * 凭据格式:appKey:appSecret。
- * 生产 transport:钉钉 Stream Mode WS 客户端——实装 TODO(官方 SDK 接入,
- * 接口形状已由 adapter 的 DingtalkTransport 锁定)。
+ * 生产 transport:官方 dingtalk-stream SDK(Stream Mode WS 长连接)。
+ * 凭据格式(JSON 字符串):{"appKey":"...","appSecret":"...","robotCode":"..."}
  */
 export const name = 'dsh-orgos-im-dingtalk'
 export const inject = ['teamImGateway']
@@ -21,13 +20,13 @@ export function apply(ctx: Ctx): void {
       onInbound(msg: unknown): void
       onConnection(state: 'connected' | 'disconnected', reason?: string): void
     }) {
-      const [appKey, appSecret] = rawCredential.split(':')
-      if (!appKey || !appSecret) throw new Error('dingtalk 凭据格式应为 appKey:appSecret')
-      const credentials: DingtalkCredentials = { appKey, appSecret }
+      const parsed = JSON.parse(rawCredential) as { appKey: string; appSecret: string; robotCode?: string }
+      if (!parsed.appKey || !parsed.appSecret) throw new Error('dingtalk 凭据 JSON 需含 appKey/appSecret(可选 robotCode)')
+      const credentials: DingtalkCredentials = { appKey: parsed.appKey, appSecret: parsed.appSecret }
       return new DingtalkAdapter({
         channel,
         credentials,
-        transport: createDingtalkTransport(credentials),
+        transport: createDingtalkTransport(credentials, parsed.robotCode),
         onInbound: handlers.onInbound,
         onConnection: handlers.onConnection,
       })
@@ -35,14 +34,55 @@ export function apply(ctx: Ctx): void {
   })
 }
 
-/** 生产 transport 占位:抛明确错误(fail-closed),TODO 接官方 Stream SDK */
-function createDingtalkTransport(_credentials: DingtalkCredentials): DingtalkTransport {
+/** 生产 transport:dingtalk-stream SDK + 机器人单聊发消息(官方 API) */
+function createDingtalkTransport(credentials: DingtalkCredentials, robotCode?: string): DingtalkTransport {
   return {
-    async connect() {
-      throw new Error('dingtalk 生产 transport 未实装(官方 Stream SDK 接入 TODO)')
+    async connect(handlers) {
+      const { DWClient, TOPIC_ROBOT } = await import('dingtalk-stream')
+      const client = new DWClient({
+        clientId: credentials.appKey,
+        clientSecret: credentials.appSecret,
+        keepAlive: true,
+      })
+      client.registerCallbackListener(TOPIC_ROBOT, (downstream: { headers?: { eventType?: string }; data?: unknown }) => {
+        handlers.onEvent({ eventType: downstream.headers?.eventType, data: downstream.data })
+      })
+      await client.connect()
+      return {
+        async disconnect() {
+          client.disconnect()
+        },
+        selfId: () => undefined,
+      }
     },
-    async sendMessage() {
-      throw new Error('dingtalk 生产 transport 未实装')
+    async sendMessage(conversationId, payload) {
+      const token = await fetchDingtalkToken(credentials)
+      const msg = payload as { text?: string }
+      await fetch('https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-acs-dingtalk-access-token': token,
+        },
+        body: JSON.stringify({
+          robotCode: robotCode ?? credentials.appKey,
+          userIds: [conversationId],
+          msgKey: 'sampleText',
+          msgParam: JSON.stringify({ content: msg.text ?? '' }),
+        }),
+      })
     },
   }
+}
+
+/** 钉钉企业 access_token(官方 oauth2 接口) */
+async function fetchDingtalkToken(credentials: DingtalkCredentials): Promise<string> {
+  const res = await fetch('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ appKey: credentials.appKey, appSecret: credentials.appSecret }),
+  })
+  const data = (await res.json()) as { accessToken?: string; message?: string }
+  if (!data.accessToken) throw new Error(`dingtalk access_token: ${data.message ?? res.status}`)
+  return data.accessToken
 }
