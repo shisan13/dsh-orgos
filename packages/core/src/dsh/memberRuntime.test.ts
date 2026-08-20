@@ -204,32 +204,26 @@ describe('SessionMemberRuntime(绑定层)', () => {
   })
 
   it('GIVEN wake 且 idle WHEN deliver THEN followup 唤醒', async () => {
-    const rt = await runtime.ensure(member())
+    await runtime.deliver(member(), '开工', { wake: true, source: { kind: 'user' } })
     const agent = agents.registry.get('orgos-member-coder-1') as FakeAgent
-    runtime.deliver({ agent }, '开工', { wake: true, source: { kind: 'user' } })
     expect(agent.followupCalls.length).toBe(1)
     expect(agent.injectCalls.length).toBe(0)
     const msg = agent.followupCalls[0] as { source: { kind: string } }
     expect(msg.source.kind).toBe('user')
-    void rt
   })
 
   it('GIVEN wake 但 running WHEN deliver THEN inject 不唤醒', async () => {
     agents.registry.set('orgos-member-coder-1', new FakeAgent('orgos-member-coder-1', 'running'))
-    const rt = await runtime.ensure(member())
+    await runtime.deliver(member(), '继续', { wake: true })
     const agent = agents.registry.get('orgos-member-coder-1') as FakeAgent
-    runtime.deliver({ agent }, '继续', { wake: true })
     expect(agent.followupCalls.length).toBe(0)
     expect(agent.injectCalls.length).toBe(1)
-    void rt
   })
 
   it('GIVEN wake=false WHEN deliver THEN inject', async () => {
-    const rt = await runtime.ensure(member())
+    await runtime.deliver(member(), '通知', { wake: false })
     const agent = agents.registry.get('orgos-member-coder-1') as FakeAgent
-    runtime.deliver({ agent }, '通知', { wake: false })
     expect(agent.injectCalls.length).toBe(1)
-    void rt
   })
 
   describe('审批监听(fail-closed)', () => {
