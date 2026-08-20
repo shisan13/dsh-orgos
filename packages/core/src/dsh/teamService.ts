@@ -30,7 +30,7 @@ import {
   type TeamConfig,
 } from '../domain/index.js'
 import type { NormalizedMessage } from 'dsh-orgos-im-gateway'
-import { SessionMemberRuntime, type MemberDef, type DshAgents, type AgentPresetsMount, type AgentDefaultModelLike } from './memberRuntime.js'
+import { SessionMemberRuntime, DshSdkMemberRuntime, HybridMemberRuntime, type MemberDef, type DshAgents, type AgentPresetsMount, type AgentDefaultModelLike, type MemberRuntimeFacade, type DshSdkMemberOptions } from './memberRuntime.js'
 import { atomicWriteTeamYml, createFileTeamStore, readTeamYml, type TeamStore } from './store.js'
 import type { DocumentProvider, DocumentContent, OrgFederation, DocListResult, DocGetResult, DocCreateResult, DocRouteUpdateResult, DocSearchResult, DocumentRef } from './extensions.js'
 
@@ -49,6 +49,8 @@ export interface TeamServiceOptions {
   emit?: (event: string, payload: Record<string, unknown>) => void
   /** 存储 provider 注入点(扩展面):默认 JSONL 文件存储;集团期换 SQLite provider,数据格式不变 */
   store?: TeamStore
+  /** 成员后端切换(ADR-002):配置后 agent 成员走 member-dsh-sdk(P1 进程常驻),human 不受影响 */
+  sdkMember?: DshSdkMemberOptions
 }
 
 export interface TeamSnapshot {
@@ -73,7 +75,7 @@ export class TeamService {
   /** 三层记忆引擎(team/org 显式提炼层;private 在成员 session,不落此库) */
   private readonly memory = new MemoryStore()
   readonly store: TeamStore
-  private readonly memberRuntime: SessionMemberRuntime
+  private readonly memberRuntime: MemberRuntimeFacade
   private readonly members = new Map<string, MemberDef>()
   /** 最近入站路由表:positionId → 回信目标(回复回送回路) */
   private readonly lastRoute = new Map<string, { channel: string; peer: { kind: 'group' | 'direct'; id: string } }>()
@@ -104,20 +106,33 @@ export class TeamService {
         upstreamEmit?.(event, payload)
       },
     }
-    this.memberRuntime = new SessionMemberRuntime(
+    const onStatus = (positionId: string, status: 'offline' | 'idle' | 'busy' | 'failed'): void => {
+      options.emit?.('team/member-status', { positionId, kind: this.members.get(positionId)?.kind ?? 'agent', status, at: new Date().toISOString() })
+    }
+    const onAssistant = (positionId: string, text: string): void => {
+      this.deliverAssistantText(positionId, text)
+    }
+    const sessionRuntime = new SessionMemberRuntime(
       options.agents,
       options.presets,
       options.defaultModel,
-      (positionId, status) => {
-        options.emit?.('team/member-status', { positionId, kind: this.members.get(positionId)?.kind ?? 'agent', status, at: new Date().toISOString() })
-      },
-      (positionId, text) => {
-        this.deliverAssistantText(positionId, text)
-      },
+      onStatus,
+      onAssistant,
       (positionId, approvalId, toolName, reason) => {
         this.presentApproval(positionId, approvalId, toolName, reason)
       },
     )
+    // ADR-002 MemberBackend seam:member-dsh-sdk(P1 进程常驻)与 member-session 混合
+    // (sdkMember.positions 列出走 SDK 的岗位;缺省 = 全部 agent 岗位)
+    const sdkOptions = options.sdkMember
+    this.memberRuntime = sdkOptions === undefined
+      ? sessionRuntime
+      : new HybridMemberRuntime(sessionRuntime, new DshSdkMemberRuntime(sdkOptions, onStatus, onAssistant), new Set(sdkOptions.positions))
+  }
+
+  /** 服务停止:回收成员后端资源(dsh-sdk 子进程/session 句柄),幂等 */
+  async disposeMemberBackends(): Promise<void> {
+    await this.memberRuntime.disposeAll()
   }
 
   /** 审批卡片呈现:经最近入站路由发送 approval 卡片(§9.3 审批闭环) */
@@ -321,15 +336,13 @@ export class TeamService {
 
     this.lastRoute.set(result.target.id, { channel: msg.channel, peer: msg.peer })
     this.logRun('inbound', { positionId: result.target.id, channel: msg.channel })
-    const runtime = await this.memberRuntime.ensure(member)
-    const handle = this.options.agents.get(runtime.sessionId ?? '')
-    if (!handle) return { routed: false, reason: 'agent_unavailable' }
     const wake = msg.kind === 'text' || msg.kind === 'mention' || msg.kind === 'reply'
-    this.memberRuntime.deliver(
-      { agent: handle },
+    const delivered = await this.memberRuntime.deliver(
+      member,
       `[IM ${msg.channel}${msg.peer.kind === 'group' ? ' 群' : ''} @${msg.sender.name ?? msg.sender.id}] ${msg.content ?? ''}`,
       { wake, source: { kind: 'user' } },
     )
+    if (!delivered) return { routed: false, reason: 'agent_unavailable' }
     return { routed: true, positionId: result.target.id }
   }
 
@@ -357,11 +370,8 @@ export class TeamService {
       this.options.outbound?.({ channel: member.im?.channel ?? '', peer: { kind: 'direct', id: member.im?.userId ?? '' } }, `[dsh-orgos 任务] ${d.brief.task}\n验收:${d.brief.acceptance.join(';')}`)
       return
     }
-    const runtime = await this.memberRuntime.ensure(member)
-    const agent = this.options.agents.get(runtime.sessionId ?? '')
-    if (!agent) return
-    this.memberRuntime.deliver(
-      { agent },
+    await this.memberRuntime.deliver(
+      member,
       `[TEAM DELEGATION ${d.id}]\n任务:${d.brief.task}\n要求:${d.brief.requirements.join(';')}\n验收:${d.brief.acceptance.join(';')}\n完成后用 team_task_complete 汇报。`,
       { wake: true, source: ORGOS_SOURCE },
     )

@@ -22,6 +22,15 @@ export interface TeamCoreConfig {
   ownerIds: string[]
   allowlist?: string[]
   heartbeatIntervalMinutes?: number
+  /** member-dsh-sdk 后端(C 阶段):配置后 agent 成员以官方 SDK 子进程常驻运行 */
+  memberDshSdk?: {
+    /** 官方 SDK 客户端模块绝对路径(如 checkout 的 packages/sdk/client/lib/index.js) */
+    sdkClientEntry: string
+    launch: { command: string; args: string[]; cwd?: string; env?: Record<string, string> }
+    provider?: string
+    model?: string
+    maxTokens?: number
+  }
 }
 
 // 本地轻量 cordis 形状(运行时结构兼容;TS 编译零依赖)
@@ -41,17 +50,36 @@ import { makeUserMessage } from './memberRuntime.js'
 import { seedPresets } from './seeder.js'
 import { marker } from './store.js'
 
-export function apply(ctx: Ctx, config: TeamCoreConfig): void {
+export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
   marker(config.stateRoot, 'core', 'apply')
   const agents = ctx.agents
   const presets = ctx.agentPresets
 
+  // member-dsh-sdk 子进程 env:官方 SDK 客户端按"整体替换"语义接管子环境
+  // (scrubbed parent env 不含凭据),因此必须显式携带可执行解析所需的 PATH/HOME,
+  // 并经父进程 credentials 服务解析 DEEPSEEK_API_KEY 注入(密钥零落配置/日志)。
+  if (config.memberDshSdk !== undefined) {
+    const launchEnv: Record<string, string> = {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      HOME: process.env.HOME ?? '',
+      ...(config.memberDshSdk.launch.env ?? {}),
+    }
+    if (launchEnv.DEEPSEEK_API_KEY === undefined) {
+      const credentials = ctx.get('credentials') as { resolve(ref: string): Promise<{ value: string } | undefined> } | undefined
+      if (credentials?.resolve !== undefined) {
+        const resolved = await credentials.resolve('DEEPSEEK_API_KEY')
+        if (resolved?.value !== undefined && resolved.value !== '') launchEnv.DEEPSEEK_API_KEY = resolved.value
+      }
+    }
+    config.memberDshSdk.launch.env = launchEnv
+  }
   const options: TeamServiceOptions = {
     stateRoot: config.stateRoot,
     ownerIds: config.ownerIds ?? [],
     allowlist: config.allowlist,
     agents: agents as never,
     presets: presets as never,
+    ...(config.memberDshSdk ? { sdkMember: config.memberDshSdk } : {}),
     defaultModel: (ctx.get('agentDefaultModel') ?? undefined) as never,
     emit: (event, payload) => {
       try {
@@ -169,4 +197,8 @@ export function apply(ctx: Ctx, config: TeamCoreConfig): void {
     }
   }, intervalMinutes * 60_000)
   ctx.effect(() => () => clearInterval(timer))
+  // 服务停止:回收成员后端(dsh-sdk 子进程 dispose 阶梯;session 句柄释放)
+  ctx.effect(() => () => {
+    void service.disposeMemberBackends()
+  })
 }

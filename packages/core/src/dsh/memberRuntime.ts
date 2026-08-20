@@ -67,6 +67,44 @@ export interface MemberRuntime {
 }
 
 /**
+ * 成员后端统一门面(TeamService 只依赖此形状):
+ * member-session(常驻父进程 session)与 member-dsh-sdk(P1 进程常驻子运行时)
+ * 两个实现互插(ADR-002 预留的 MemberBackend seam)。
+ */
+export interface MemberRuntimeFacade {
+  ensure(member: MemberDef): Promise<MemberRuntime>
+  /** 投递一条成员消息(内部自行 ensure);不可投递返回 false(如 agent 句柄缺失/后端已关闭) */
+  deliver(member: MemberDef, text: string, opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean>
+  /** 释放成员句柄(岗位替换;可选 boot note 注入下次 ensure) */
+  release(positionId: string, bootNote?: string): void
+  /** 审批卡片回执(session 后端支持;dsh-sdk 子进程无审批链路,恒 false) */
+  resolveApproval(approvalId: string, action: 'allow' | 'deny'): boolean
+  /** 服务停止:回收全部成员资源(session 句柄/dsh-sdk 子进程) */
+  disposeAll(): Promise<void>
+}
+
+/** member-dsh-sdk 后端选项(P1 进程常驻;C 阶段 M2 尾验证) */
+export interface DshSdkMemberOptions {
+  /** 官方 SDK 客户端模块(绝对路径或部署可解析 specifier);延迟 import,core 零静态依赖 */
+  sdkClientEntry: string
+  /** 子运行时启动规格(spawn 命令 + 子进程 cordis.yml 路径) */
+  launch: { command: string; args: string[]; cwd?: string; env?: Record<string, string> }
+  /** 写入子进程 initialize 的模型路由(缺省由子进程组合兜底) */
+  provider?: string
+  model?: string
+  maxTokens?: number
+  /** 仅列出的岗位走 dsh-sdk 后端(缺省 = 全部 agent 岗位);用于渐进迁移验证 */
+  positions?: string[]
+}
+
+/** 官方 SDK 客户端结构形状(运行时 Duck-typing,零 DSH import) */
+export interface SdkHarnessLike {
+  /** 打开/复用子进程内会话句柄(sessionId 稳定复用 = 常驻人格/记忆) */
+  session(sessionId?: string): { run(input: string): Promise<{ finalResponse: string }> }
+  close(): Promise<void>
+}
+
+/**
  * member-session 后端:常驻 DSH 根 session。
  * 懒激活:首条投递时 create/resume;空闲由 DSH 自身管理(agent 保持 idle 可回收句柄)。
  */
@@ -163,7 +201,6 @@ export class SessionMemberRuntime {
   async ensure(member: MemberDef): Promise<MemberRuntime> {
     const existing = this.handles.get(member.positionId)
     if (existing) return this.snapshot(member, existing.agent)
-
     const sessionId = this.sessionIdFor(member.positionId)
     const live = this.agents.get(sessionId)
     if (!live) {
@@ -192,13 +229,24 @@ export class SessionMemberRuntime {
     return this.snapshot(member, handle.agent)
   }
 
-  deliver(handle: { agent: LiveAgent }, text: string, opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): void {
+  /** 门面投递:内部 ensure 后注入/唤醒;agent 句柄缺失返回 false(调用方按不可用处理) */
+  async deliver(member: MemberDef, text: string, opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean> {
+    const runtime = await this.ensure(member)
+    const agent = this.agents.get(runtime.sessionId ?? '')
+    if (!agent) return false
     const msg = makeUserMessage(text, opts.source)
-    if (opts.wake && handle.agent.status === 'idle') {
-      handle.agent.followup(msg)
+    if (opts.wake && agent.status === 'idle') {
+      agent.followup(msg)
     } else {
-      handle.agent.inject(msg)
+      agent.inject(msg)
     }
+    return true
+  }
+
+  /** 服务停止:释放全部成员句柄(懒激活语义下多数为 no-op) */
+  async disposeAll(): Promise<void> {
+    await Promise.all([...this.handles.values()].map((h) => Promise.resolve().then(() => h.dispose()).catch(() => {})))
+    this.handles.clear()
   }
 
   snapshot(member: MemberDef, agent: LiveAgent): MemberRuntime {
@@ -256,5 +304,161 @@ export class SessionMemberRuntime {
 
   private sessionIdFor(positionId: string): string {
     return `orgos-member-${positionId}`
+  }
+}
+
+/**
+ * member-dsh-sdk 后端(P1 进程常驻;C 阶段 M2 尾验证):
+ * 每个成员一个官方 DeepSeekHarness 子进程(完整对等 DSH 运行时,组合/会话/模型自持),
+ * 成员会话 = 子进程内按 sessionId 稳定复用的 SDK session——跨委派轮次保持人格与历史,
+ * 语义与 member-session 常驻同构。官方 SDK 事实(本会话核实,rc.8 checkout):
+ * - DeepSeekHarness:start/initialize 握手 memoize;子进程跨 run() 常驻,close() 才回收;
+ * - session(id?) 打开命名会话句柄,run(input, { sessionId }) 跨轮次复用同一会话;
+ * - 无中途取消:一个轮次只能等其 idle,放弃轮次 = 关闭整个子进程(Known Limitation)。
+ *
+ * 协作面边界(方案 C.3):子进程组合不挂 team_* 工具(团队协作经父进程代理:
+ * 成员产出 → finalResponse → onAssistant 回送 → 父侧回执流/邮箱登记)。
+ * 审批链路子进程侧不在 M2 尾验证范围(resolveApproval 恒 false)。
+ */
+export class DshSdkMemberRuntime implements MemberRuntimeFacade {
+  /** positionId → 常驻子进程句柄 */
+  private readonly members = new Map<string, { harness: SdkHarnessLike; sessionId: string; busy: boolean; queue: string[]; failed?: string }>()
+  private readonly bootNotes = new Map<string, string>()
+  private modulePromise: Promise<{ DeepSeekHarness?: new (options: unknown) => SdkHarnessLike }> | undefined
+  private closed = false
+
+  constructor(
+    private readonly options: DshSdkMemberOptions,
+    private readonly onStatus?: (positionId: string, status: MemberRuntime['status']) => void,
+    /** 成员 assistant 最终输出回送(positionId, text)—— 父侧登记回执/回送 IM */
+    private readonly onAssistant?: (positionId: string, text: string) => void,
+  ) {}
+
+  /** 懒加载 SDK 客户端模块(每成员进程常驻;模块只 import 一次) */
+  private async sdkModule(): Promise<{ DeepSeekHarness?: new (options: unknown) => SdkHarnessLike }> {
+    this.modulePromise ??= import(this.options.sdkClientEntry) as Promise<{ DeepSeekHarness?: new (options: unknown) => SdkHarnessLike }>
+    return this.modulePromise
+  }
+
+  async ensure(member: MemberDef): Promise<MemberRuntime> {
+    const existing = this.members.get(member.positionId)
+    if (existing) return this.snapshot(member.positionId, existing)
+    const mod = await this.sdkModule()
+    if (mod.DeepSeekHarness === undefined) throw new Error(`sdkClientEntry ${this.options.sdkClientEntry} 未导出 DeepSeekHarness`)
+    // 每成员独立子进程:模型路由走 initialize,组合由子进程 cordis.yml 决定
+    const harness = new mod.DeepSeekHarness({
+      launch: this.options.launch,
+      ...(this.options.provider === undefined ? {} : { provider: this.options.provider }),
+      ...(this.options.model === undefined ? {} : { model: this.options.model }),
+      ...(this.options.maxTokens === undefined ? {} : { maxTokens: this.options.maxTokens }),
+    })
+    const entry = { harness, sessionId: this.sessionIdFor(member.positionId), busy: false, queue: [] as string[] }
+    this.members.set(member.positionId, entry)
+    this.onStatus?.(member.positionId, 'idle')
+    return this.snapshot(member.positionId, entry)
+  }
+
+  /** 门面投递:入队后串行 pump(子进程单轮次语义;排队期间 busy 折叠) */
+  async deliver(member: MemberDef, text: string, _opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean> {
+    if (this.closed) return false
+    const entry = await this.ensure(member).then((_r) => this.members.get(member.positionId))
+    if (entry === undefined) return false
+    if (entry.failed !== undefined) return false // 失败态需 release 重建,拒绝继续投递
+    const note = this.bootNotes.get(member.positionId)
+    this.bootNotes.delete(member.positionId)
+    entry.queue.push(note === undefined ? text : `[HANDOVER FRAMING]\n${note}\n\n${text}`)
+    void this.pump(member.positionId, entry)
+    return true
+  }
+
+  /** 串行消费队列:一次 run 一消息,结束后 onAssistant 回送最终文本 */
+  private async pump(positionId: string, entry: { harness: SdkHarnessLike; sessionId: string; busy: boolean; queue: string[]; failed?: string }): Promise<void> {
+    if (entry.busy) return
+    entry.busy = true
+    this.onStatus?.(positionId, 'busy')
+    try {
+      while (entry.queue.length > 0) {
+        const text = entry.queue.shift() ?? ''
+        const result = await entry.harness.session(entry.sessionId).run(text)
+        const final = String(result.finalResponse ?? '').trim()
+        if (final.length > 0) this.onAssistant?.(positionId, final)
+      }
+      this.onStatus?.(positionId, 'idle')
+    } catch (error) {
+      entry.failed = String(error).slice(0, 300)
+      this.onStatus?.(positionId, 'failed')
+    } finally {
+      entry.busy = false
+    }
+  }
+
+  /** 岗位替换/重建:关闭该成员子进程(幂等),boot note 注入下次 ensure 后的首条消息 */
+  release(positionId: string, bootNote?: string): void {
+    const entry = this.members.get(positionId)
+    if (entry) {
+      this.members.delete(positionId)
+      void Promise.resolve().then(() => entry.harness.close()).catch(() => {})
+    }
+    if (bootNote !== undefined && bootNote.trim().length > 0) this.bootNotes.set(positionId, bootNote)
+  }
+
+  /** dsh-sdk 子进程无审批链路(M2 尾验证范围外);恒 false */
+  resolveApproval(_approvalId: string, _action: 'allow' | 'deny'): boolean {
+    return false
+  }
+
+  /** 服务停止:回收全部成员子进程(官方 dispose 阶梯,幂等) */
+  async disposeAll(): Promise<void> {
+    this.closed = true
+    await Promise.allSettled([...this.members.values()].map((e) => e.harness.close()))
+    this.members.clear()
+  }
+
+  private snapshot(positionId: string, entry: { busy: boolean; failed?: string }): MemberRuntime {
+    return {
+      positionId,
+      kind: 'agent',
+      status: entry.failed !== undefined ? 'failed' : entry.busy ? 'busy' : 'idle',
+      sessionId: this.sessionIdFor(positionId),
+    }
+  }
+
+  private sessionIdFor(positionId: string): string {
+    return `orgos-member-${positionId}`
+  }
+}
+
+/** 混合成员后端:按岗位分流 session / dsh-sdk(渐进迁移期;默认全 session) */
+export class HybridMemberRuntime implements MemberRuntimeFacade {
+  constructor(
+    private readonly session: MemberRuntimeFacade,
+    private readonly sdk: DshSdkMemberRuntime | undefined,
+    private readonly sdkPositions: ReadonlySet<string>,
+  ) {}
+
+  private for(member: MemberDef): MemberRuntimeFacade {
+    return this.sdk !== undefined && this.sdkPositions.has(member.positionId) ? this.sdk : this.session
+  }
+
+  ensure(member: MemberDef): Promise<MemberRuntime> {
+    return this.for(member).ensure(member)
+  }
+
+  deliver(member: MemberDef, text: string, opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean> {
+    return this.for(member).deliver(member, text, opts)
+  }
+
+  release(positionId: string, bootNote?: string): void {
+    // 两后端各自幂等:仅持有该岗位句柄的一侧生效
+    this.session.release(positionId, bootNote)
+    this.sdk?.release(positionId, bootNote)
+  }
+
+  resolveApproval(approvalId: string, action: 'allow' | 'deny'): boolean {
+    return this.session.resolveApproval(approvalId, action)
+  }
+
+  async disposeAll(): Promise<void> {
+    await Promise.allSettled([this.session.disposeAll(), this.sdk?.disposeAll()])
   }
 }
