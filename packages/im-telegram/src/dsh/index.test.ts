@@ -202,7 +202,7 @@ describe('Given fetchBotUsername(getMe 注入)', () => {
   it('When getMe ok Then 返回带 @ 前缀的 username', async () => {
     fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: { username: 'emosignal_personal_bot' } })))
     const { fetchBotUsername } = await import('./index.ts')
-    expect(await fetchBotUsername(TOKEN)).toBe('@emosignal_personal_bot')
+    expect(await fetchBotUsername(TOKEN)).toBe('emosignal_personal_bot')
   })
 
   it('When getMe ok=false / 网络异常 / 无 username Then 返回 undefined(不阻塞)', async () => {
@@ -222,7 +222,7 @@ describe('Given fetchBotUsername(getMe 注入)', () => {
       calls.push({ input, init })
       return new Response(JSON.stringify({ ok: true, result: { username: 'x' } }))
     })
-    expect(await fetchBotUsername(TOKEN, 'http://127.0.0.1:7890')).toBe('@x')
+    expect(await fetchBotUsername(TOKEN, 'http://127.0.0.1:7890')).toBe('x')
     expect(calls[0]!.init?.dispatcher).toBeDefined()
   })
 

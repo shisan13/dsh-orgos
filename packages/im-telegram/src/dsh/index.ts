@@ -80,7 +80,7 @@ export function apply(ctx: Ctx, config: TelegramDshConfig = {}): void {
   })
 }
 
-/** getMe 获取 bot username(带 @ 前缀;失败返回 undefined) */
+/** getMe 获取 bot username(裸 username,不带 @;textIncludesMention 内部自行拼 @ 前缀;失败返回 undefined) */
 export async function fetchBotUsername(token: string, proxyUrl?: string): Promise<string | undefined> {
   const dispatcher = proxyUrl ? createProxyDispatcher(proxyUrl) : undefined
   const request = (url: string, init?: UndiciInit): Promise<Response> =>
@@ -94,8 +94,7 @@ export async function fetchBotUsername(token: string, proxyUrl?: string): Promis
     const res = await request(`https://api.telegram.org/bot${token}/getMe`)
     const data = (await res.json()) as { ok: boolean; result?: { username?: string } }
     if (!data.ok) return undefined
-    const username = data.result?.username
-    return username !== undefined ? `@${username}` : undefined
+    return data.result?.username
   } catch {
     return undefined
   }
