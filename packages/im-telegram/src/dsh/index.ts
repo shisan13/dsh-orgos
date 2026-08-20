@@ -58,17 +58,21 @@ export function apply(ctx: Ctx, config: TelegramDshConfig = {}): void {
         transport: createTelegramTransport(token, proxyUrl),
         onInbound: handlers.onInbound,
         onConnection: handlers.onConnection,
+        onDebug: (message) => ctx.logger.info(`[dsh-orgos-im-telegram] ${message}`),
       })
     },
   })
 }
 
-/** 代理 dispatcher:undici ProxyAgent(http/https 与 socks5 原生支持) */
+/** 代理 dispatcher:undici ProxyAgent(http/https 与 socks5 原生支持)。
+ *  关键:undici 到「代理服务器」的建连超时默认硬编码 10s(ProxyAgent 内部
+ *  buildConnector 只透传 proxyTls 选项),必须经 proxyTls.timeout 放宽——
+ *  fetch init 的 connect.timeout 只作用于隧道后的目标连接(实测验证)。 */
 function createProxyDispatcher(proxyUrl: string): RequestInit['dispatcher'] {
   // 类型桥接:undici npm 包类型与 @types/node 内置的 undici-types 是两份类型副本
   // (compose 签名略有差异);运行时同为 undici Dispatcher(dispatch(opts, handler)),
   // fetch 按 duck-typing 调用,两者完全兼容,此处仅做边界断言。
-  return new ProxyAgent(proxyUrl) as unknown as RequestInit['dispatcher']
+  return new ProxyAgent({ uri: proxyUrl, proxyTls: { timeout: REQUEST_CONNECT_TIMEOUT_MS } }) as unknown as RequestInit['dispatcher']
 }
 
 /** 生产 transport:官方 Bot API(HTTP + 长轮询),失败由 adapter 退避重连。

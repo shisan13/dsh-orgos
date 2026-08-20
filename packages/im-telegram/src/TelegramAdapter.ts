@@ -39,6 +39,8 @@ export interface TelegramAdapterOptions {
   channel?: string
   /** 长轮询超时秒数(默认 30) */
   pollTimeoutSeconds?: number
+  /** 可观测调试钩子(轮询失败原因等,绑定层写日志用) */
+  onDebug?: (message: string) => void
 }
 
 export class TelegramAdapter implements ImAdapter {
@@ -119,7 +121,11 @@ export class TelegramAdapter implements ImAdapter {
           this.reconnectAttempt = 0 // 轮询成功即视为连接健康
         } catch (err) {
           if (!this.started || this.stopping) break
-          const backoff = await this.scheduleReconnect(err instanceof Error ? err.message : 'poll-failed')
+          // undici 通用 'fetch failed' 无信息量;拼接 cause(网络层真实原因)便于诊断
+          const cause = (err as { cause?: { message?: string; code?: string } })?.cause
+          const reason = cause?.message ?? cause?.code ?? (err instanceof Error ? err.message : 'poll-failed')
+          this.opts.onDebug?.(`poll-error: ${reason}`)
+          const backoff = await this.scheduleReconnect(reason)
           if (!backoff) break // 已耗尽或已停止
         }
       }
