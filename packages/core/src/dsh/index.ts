@@ -134,9 +134,13 @@ export function apply(ctx: Ctx, config: TeamCoreConfig): void {
   }
 
   // 成员状态折叠:agent/status(全局 emit)→ 岗位状态(M1 收尾①)
-  ctx.on('agent/status', ((agent: { id: string }, status: string) => {
-    if (!agent?.id?.startsWith('orgos-member-')) return
-    const positionId = agent.id.slice('orgos-member-'.length)
+  // 官方事件签名 = 单参数 { agent, status }(scoped emit 注入 agent;rc.7 起即此形态,
+  // 此前两参数解构致状态永不更新——实跑暴露)
+  ctx.on('agent/status', ((payload: { agent?: { id?: string }; status?: string }) => {
+    const agentId = payload?.agent?.id
+    const status = payload?.status
+    if (!agentId?.startsWith('orgos-member-')) return
+    const positionId = agentId.slice('orgos-member-'.length)
     service.setMemberStatus(positionId, status === 'running' ? 'busy' : 'idle')
   }) as never)
 
