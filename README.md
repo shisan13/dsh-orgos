@@ -231,7 +231,9 @@ examples/          # Team config samples (squad/department/conglomerate/multi-bo
 | Doc | Path |
 |-----|------|
 | Architecture & data flows | [docs/architecture.md](docs/architecture.md) |
-| team.yml configuration manual (every field + three templates) | [examples/README.md](examples/README.md) |
+| team.yml configuration manual (every field + four templates) | [examples/README.md](examples/README.md) |
+| Quant team guide | [docs/quant-trading-guide.md](docs/quant-trading-guide.md) |
+| Deployment shapes & large-project delivery flow (single/multi machine) | [docs/deployment-and-scale.md](docs/deployment-and-scale.md) |
 
 Internal design & decision documents (PRD / tech design / ADRs / security) live outside this repository.
 

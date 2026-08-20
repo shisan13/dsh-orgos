@@ -133,6 +133,8 @@ Member session history = native DSH session persistence (never copied); credenti
 
 ## 6. Related docs
 
-- Configuration manual (every team.yml field + three templates): [examples/README.md](../examples/README.md)
+- Configuration manual (every team.yml field + four templates): [examples/README.md](../examples/README.md)
+- Quant team setup: [quant-trading-guide.md](quant-trading-guide.md)
+- Deployment shapes & large-project delivery flow: [deployment-and-scale.md](deployment-and-scale.md)
 - Overview: repository [README.md](../README.md)
 - Development conventions: [AGENTS.md](../AGENTS.md), [CONTRIBUTING.md](../CONTRIBUTING.md)

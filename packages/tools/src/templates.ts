@@ -195,7 +195,7 @@ acl:
   memberConcurrencyMax: 2         # 每成员并发派发上限(默认 2)`
 
 export const TEMPLATE_QUANT = `# dsh-orgos 量化交易组织模板(team_setup init quant)
-# 规模:org → dept(产品运营/技术)→ team → team 三层治理,~20 岗位
+# 规模:org → dept(产品运营(含设计)/技术)→ team → team 三层治理,~28 岗位
 # 层级:ceo-pmo(总裁/PMO)→ product-lead / tech-director → 前端(frontend)/后端(backend)
 #       → app / web-mini、eng / data 子 team
 # 委派深度(org→dept→team→team)= 3 跳,与默认 delegationDepthMax: 3 恰好匹配。
@@ -213,11 +213,15 @@ nodes:
     orchestratorPosition: ceo-pmo # org 层 orchestrator:CEO/PMO(接受全局升级与未绑定入口)
     children: [dept-product, dept-tech]
   - id: dept-product
-    kind: dept                    # 部门层:产品与运营
+    kind: dept                    # 部门层:产品与运营(含设计)
     orchestratorPosition: product-lead
-    children: [team-product]
+    children: [team-product, team-design]
   - id: team-product
     kind: team                    # 团队层:产品/运营执行岗位归属单元
+    children: []
+  - id: team-design
+    kind: team                    # 团队层:设计(UI/UX;设计稿交付前端实现)
+    orchestratorPosition: design-lead
     children: []
   - id: dept-tech
     kind: dept                    # 部门层:技术
@@ -255,6 +259,9 @@ positions:
   - id: product-lead
     title: 产品运营负责人
     occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: design-lead
+    title: 设计负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
   - id: tech-director
     title: 技术总监
     occupant: { kind: agent, preset: orgos-orchestrator }
@@ -291,6 +298,16 @@ positions:
     title: 内容运营
     teamId: team-product
     occupant: { kind: agent, preset: orgos-assistant }
+  # —— 执行岗位(设计 team)——
+  - id: ui-1
+    title: UI 设计师
+    teamId: team-design
+    capabilityProfile: [ui, design-system, figma]
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: ux-1
+    title: UX/交互设计师
+    teamId: team-design
+    occupant: { kind: agent, preset: orgos-analyst }
   # —— 执行岗位(App 子 team)——
   - id: ios-1
     title: iOS 工程师
@@ -355,6 +372,8 @@ acl:
   # 跨 team 协作白名单(判定顺序 block→allowCrossTeam→同 team→deny):
   # 产品 ↔ 技术 双向 note/result(需求澄清/交付回执);前端 ↔ 后端 双向 result(联调)。
   allowCrossTeam:
+    - { from: team-product, to: team-design, scopes: [note, result] }
+    - { from: team-design, to: team-frontend, scopes: [note, result] }
     - { from: team-product, to: team-frontend, scopes: [note, result] }
     - { from: team-product, to: team-backend, scopes: [note, result] }
     - { from: team-frontend, to: team-backend, scopes: [note, result] }

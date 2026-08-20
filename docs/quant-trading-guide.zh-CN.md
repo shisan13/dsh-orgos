@@ -1,6 +1,6 @@
 # 基于 dsh-orgos 组建量化交易虚拟团队
 
-> 一份从零到跑起来的完整实战指南:30 分钟搭起一个 25 岗位的量化组织(产品/技术双部门、多端研发、数据/策略/风控链路),然后让它像真实公司一样流转——需求、委派、回执、审批、记忆、心跳全链路。
+> 一份从零到跑起来的完整实战指南:30 分钟搭起一个 28 岗位的量化组织(产品/技术双部门、多端研发、数据/策略/风控链路),然后让它像真实公司一样流转——需求、委派、回执、审批、记忆、心跳全链路。
 > 本指南基于真实模板 [`examples/team-quant.yml`](../examples/team-quant.yml)(`team_setup init quant`),字段语义见 [examples/README.zh-CN.md](../examples/README.zh-CN.md),架构背景见 [docs/architecture.zh-CN.md](architecture.zh-CN.md)。
 
 ---
@@ -55,7 +55,7 @@ pnpm add dsh-orgos dsh-orgos-core dsh-orgos-tools dsh-orgos-ui file:/tmp/orgos-p
 team_setup init quant
 ```
 
-**预期**:团队快照(`/api/orgos/snapshot`)显示 `org: quant-alpha`,25 个岗位在列;`team_status` 输出岗位清单。若直接复制模板,替换占位符 `ou_your_ceo_id`(你的飞书 open_id)与 `oc_your_group_id`(主群 chat_id)后重启。
+**预期**:团队快照(`/api/orgos/snapshot`)显示 `org: quant-alpha`,28 个岗位在列;`team_status` 输出岗位清单。若直接复制模板,替换占位符 `ou_your_ceo_id`(你的飞书 open_id)与 `oc_your_group_id`(主群 chat_id)后重启。
 
 ### 第 4 步:绑定 IM 群(约 5 分钟)
 
@@ -87,15 +87,18 @@ team_setup bind channel=feishu-main peerId=oc_ops_group target=dept-product
 
 ## 2. 组织设计与岗位职责
 
-### 2.1 组织结构图(25 岗位 / 10 节点)
+### 2.1 组织结构图(28 岗位 / 11 节点)
 
 ```
 quant-alpha (org) ── orchestrator: ceo-pmo(总裁/PMO,human 示例)
-├── dept-product (产品运营) ── product-lead
-│   └── team-product
-│       ├── pm-1        产品经理(analyst)
-│       ├── ops-1       运营专员(assistant)
-│       └── content-1   内容运营(assistant)
+├── dept-product (产品运营,含设计) ── product-lead
+│   ├── team-product
+│   │   ├── pm-1        产品经理(analyst)
+│   │   ├── ops-1       运营专员(assistant)
+│   │   └── content-1   内容运营(assistant)
+│   └── team-design ── design-lead
+│       ├── ui-1        UI 设计师(coder)
+│       └── ux-1        UX/交互设计师(analyst)
 └── dept-tech (技术) ── tech-director
     ├── team-frontend ── frontend-lead
     │   ├── team-app ── app-lead
@@ -124,6 +127,9 @@ quant-alpha (org) ── orchestrator: ceo-pmo(总裁/PMO,human 示例)
 |------|---------|-----------|
 | ceo-pmo | human(示例) | 集团目标/项目组合治理、升级兜底、关键决策(风险限额/上线放行) |
 | product-lead | orchestrator | 产品运营部门调度:需求池排期、跨团队协调、向 CEO 汇报 |
+| design-lead | orchestrator | 设计团队调度:设计稿排期、设计规范、向产品/前端交付 |
+| ui-1 | coder | UI 设计稿/设计系统组件产出(交付前端实现) |
+| ux-1 | analyst | 交互/原型/可用性研究 |
 | pm-1 | analyst | 需求收集/PRD 撰写/验收口径定义 |
 | ops-1 / content-1 | assistant | 运营活动与内容产出(公告、教程、社群) |
 | tech-director | orchestrator | 技术部门调度:技术选型、跨前端/后端协调、向上汇报 |

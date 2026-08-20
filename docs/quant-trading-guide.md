@@ -1,6 +1,6 @@
 # Building a Quant Trading Virtual Team with dsh-orgos
 
-> A complete hands-on guide from zero to running: stand up a 25-position quant organization (product & engineering divisions, multi-client development, data/strategy/risk pipeline) in 30 minutes, then let it flow like a real company — requirements, delegation, receipts, approvals, memory, heartbeat.
+> A complete hands-on guide from zero to running: stand up a 28-position quant organization (product & engineering divisions, multi-client development, data/strategy/risk pipeline) in 30 minutes, then let it flow like a real company — requirements, delegation, receipts, approvals, memory, heartbeat.
 > Based on the real template [`examples/team-quant.yml`](../examples/team-quant.yml) (`team_setup init quant`); field semantics in [examples/README.md](../examples/README.md), architecture background in [docs/architecture.md](architecture.md).
 
 ---
@@ -55,7 +55,7 @@ Write the credentials (key names match `credentialId`; value format is parsed by
 team_setup init quant
 ```
 
-**Expected**: team snapshot (`/api/orgos/snapshot`) shows `org: quant-alpha` with all 25 positions; `team_status` lists them. If you copy the template instead, replace the placeholders `ou_your_ceo_id` (your Feishu open_id) and `oc_your_group_id` (main group chat_id) and restart.
+**Expected**: team snapshot (`/api/orgos/snapshot`) shows `org: quant-alpha` with all 28-position; `team_status` lists them. If you copy the template instead, replace the placeholders `ou_your_ceo_id` (your Feishu open_id) and `oc_your_group_id` (main group chat_id) and restart.
 
 ### Step 4: Bind IM groups (~5 min)
 
@@ -87,15 +87,18 @@ In the Feishu group tell the PMO: "assign to the quant researcher to research th
 
 ## 2. Organization design & position responsibilities
 
-### 2.1 Org chart (25 positions / 10 nodes)
+### 2.1 Org chart (28 positions / 11 nodes)
 
 ```
 quant-alpha (org) ── orchestrator: ceo-pmo (CEO/PMO, human example)
-├── dept-product (Product & Ops) ── product-lead
-│   └── team-product
-│       ├── pm-1        Product Manager (analyst)
-│       ├── ops-1       Ops Specialist (assistant)
-│       └── content-1   Content Ops (assistant)
+├── dept-product (Product & Ops, incl. Design) ── product-lead
+│   ├── team-product
+│   │   ├── pm-1        Product Manager (analyst)
+│   │   ├── ops-1       Operations (assistant)
+│   │   └── content-1   Content Ops (assistant)
+│   └── team-design ── design-lead
+│       ├── ui-1        UI Designer (coder)
+│       └── ux-1        UX Designer (analyst)
 └── dept-tech (Engineering) ── tech-director
     ├── team-frontend ── frontend-lead
     │   ├── team-app ── app-lead
@@ -124,6 +127,9 @@ quant-alpha (org) ── orchestrator: ceo-pmo (CEO/PMO, human example)
 |----------|--------|-------------------------|
 | ceo-pmo | human (example) | org goals / portfolio governance, escalation fallback, key decisions (risk limits / release approval) |
 | product-lead | orchestrator | product dept scheduling, demand prioritization, cross-team coordination, reporting up |
+| design-lead | orchestrator | design team scheduling, design specs, delivery to product & frontend |
+| ui-1 | coder | UI mockups / design-system components (delivered to frontend) |
+| ux-1 | analyst | interaction / prototype / usability research |
 | pm-1 | analyst | requirements collection / PRD / acceptance criteria |
 | ops-1 / content-1 | assistant | ops activities and content (announcements, tutorials, community) |
 | tech-director | orchestrator | tech dept scheduling, tech selection, cross frontend/backend coordination |

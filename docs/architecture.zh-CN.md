@@ -131,6 +131,8 @@ $DSH_HOME/team-state/
 
 ## 6. 相关文档
 
-- 配置手册(team.yml 全字段 + 三模板):[examples/README.zh-CN.md](../examples/README.zh-CN.md)
+- 配置手册(team.yml 全字段 + 四模板):[examples/README.zh-CN.md](../examples/README.zh-CN.md)
+- 量化团队组建:[quant-trading-guide.zh-CN.md](quant-trading-guide.zh-CN.md)
+- 部署形态与大项目研发流程:[deployment-and-scale.zh-CN.md](deployment-and-scale.zh-CN.md)
 - 概要:仓库 [README.zh-CN.md](../README.zh-CN.md)
 - 开发约定:[AGENTS.md](../AGENTS.md)、[CONTRIBUTING.md](../CONTRIBUTING.md)
