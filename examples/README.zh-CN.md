@@ -241,5 +241,8 @@ A:同一 `peerId` 配多条 route(按 channel 区分),@谁触发谁;真人直接
 **Q:占位符什么时候替换?**
 A:模板中 `ou_your_feishu_id` / `ou_ops_user_id`(人类成员 open_id)与 `oc_your_group_id`(群 id)必须在正式使用前替换为真实值;`team_setup validate` 可复查。
 
+**Q:团队知识库(team_doc_* 工具)怎么启用?**
+A:知识库后端是可插拔文档 provider,对应 bundle 行的 disabled 模板(profile 层复制行并去掉 disabled):本地/远程 git wiki 启用 `team-doc-git` 行(`config.repoPath` 指向已有 git 仓库);飞书云文档启用 `team-doc-feishu-docs` 行(`config.credentialRef` 用 appId:appSecret 格式);飞书多维表格启用 `team-doc-feishu` 行(另需 appToken/tableId)。三者可并存,`team_doc_*` 工具跨 provider 合并;更新带 `expectedVersion` 可防多人覆盖(CAS)。
+
 **Q:roles 覆盖与默认的关系?**
 A:不写 roles 时按岗位层级取默认值(§6 表);写了则按 preset id 覆盖对应维度,memory/subscription 空数组视为"不覆盖,回落默认"。

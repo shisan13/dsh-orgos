@@ -53,7 +53,30 @@
       name: 'dsh-orgos-im-whatsapp/dsh'
       disabled: true
 
-    # —— 文档 provider(M3;飞书多维表格,disabled 模板,验收期启用)——
+    # —— 文档 provider(B 阶段知识库;disabled 模板,用户 profile 层启用)——
+    #    三者可并存:team_doc_* 工具跨 provider 合并与消歧。
+    # git wiki 启用模板(本地仓库;credentialRef 可选 = 飞书格式以外的 ssh 私钥路径):
+    #   - id: team-doc-git
+    #     name: 'dsh-orgos-doc-git/dsh'
+    #     config:
+    #       repoPath: '/path/to/wiki-repo'   # git 仓库路径(先 git clone 就绪)
+    #       docsDir: 'docs'                  # 可选,仓库内文档目录
+    #       credentialRef: 'git-wiki-ssh'   # 可选,凭据值 = ssh 私钥文件路径
+    - id: team-doc-git
+      name: 'dsh-orgos-doc-git/dsh'
+      disabled: true
+
+    # 飞书云文档启用模板(与 im-feishu 同凭据格式 appId:appSecret,可复用凭据键):
+    #   - id: team-doc-feishu-docs
+    #     name: 'dsh-orgos-doc-feishu-docs/dsh'
+    #     config:
+    #       credentialRef: 'feishu-main'
+    #       folderToken: ''                 # 可选,文档目录 token
+    - id: team-doc-feishu-docs
+      name: 'dsh-orgos-doc-feishu-docs/dsh'
+      disabled: true
+
+    # —— 文档 provider(飞书多维表格,disabled 模板,验收期启用)——
     - id: team-doc-feishu
       name: 'dsh-orgos-doc-feishu/dsh'
       disabled: true

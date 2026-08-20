@@ -241,5 +241,8 @@ A: Multiple routes with the same `peerId` (differentiated by `channel`); @mentio
 **Q: When must placeholders be replaced?**
 A: `ou_your_feishu_id` / `ou_ops_user_id` (human member open_ids) and `oc_your_group_id` (group id) must be replaced with real values before going live; `team_setup validate` re-checks.
 
+**Q: How do I enable the team knowledge base (`team_doc_*` tools)?**
+A: The knowledge base backend is a pluggable document provider exposed as `disabled` bundle-row templates (copy the row into your profile and drop `disabled`): local/remote git wiki → `team-doc-git` row (`config.repoPath` points to an existing git repo); Feishu cloud docx → `team-doc-feishu-docs` row (`config.credentialRef` in `appId:appSecret` format); Feishu Bitable → `team-doc-feishu` row (plus appToken/tableId). The three can coexist; `team_doc_*` tools merge across providers, and passing `expectedVersion` on update enables CAS against overwrites.
+
 **Q: roles overrides vs. defaults?**
 A: Without `roles`, level-based defaults apply (§6 table); with `roles`, the matching preset id overrides the given dimensions — an empty `memory`/`subscription` array means "no override, fall back to default".

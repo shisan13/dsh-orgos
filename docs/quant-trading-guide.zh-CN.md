@@ -224,15 +224,39 @@ team_delegate
 
 ### 3.3 沟通介质
 
-**内部 md 文档(团队知识目录)**:所有产物落 md,命名带编号;谁写谁负责更新:
+**团队知识库(`team_doc_*` 工具,B 阶段)**:成员用同一套工具读写"共享知识目录",后端可插拔。查阅走 `team_doc_list/read/search`;写入走 `team_doc_create/update`(更新前先 read 拿 `ref.version`,更新时带 `expectedVersion` 防多人覆盖——CAS)。后端为可插拔文档 provider:
+
+| provider id | 后端 | 文档= | 启用(bundle 行,`disabled` 模板) |
+|-------------|------|-------|---------------------------------|
+| `git-wiki` | 本地/远程 git 仓库 | md 文件(标题=文件名) | `team-doc-git` 行:`config.repoPath`(可选 `docsDir`/`credentialRef`) |
+| `feishu-docs` | 飞书云文档(docx) | 云文档 | `team-doc-feishu-docs` 行:`config.credentialRef`(与 im-feishu 同格式 `appId:appSecret`) |
+| `feishu-bitable` | 飞书多维表格 | 表行(title/body 字段) | `team-doc-feishu` 行(见下) |
+
+知识库 ≠ 三层记忆:`team_doc_*` 存**完整资产**(PRD/方案/决策全文),`team_memory_save` 存**提炼事实**——模型按工具描述区分,数据不互拷。
+
+**内部 md 文档(git wiki 布局)**:所有产物落 md,命名带编号;谁写谁负责更新:
 
 ```
-team-state/team-wiki/           # 或成员工作区 docs/
-├── docs/prd/2026-001-量化App-PRD.md      # pm-1 写
-├── docs/tech/2026-001-技术方案.md        # tech-director/各 lead 写
-├── docs/tech/决策记录-2026-001.md        # 技术决策,data/eng 写
-└── docs/memory/                            # 复盘沉淀入口(与三层记忆对应)
+<repoPath>/docs/              # git wiki 仓库(team-doc-git 行指向这里)
+├── prd/2026-001-量化App-PRD.md      # pm-1 写
+├── tech/2026-001-技术方案.md        # tech-director/各 lead 写
+├── tech/决策记录-2026-001.md        # 技术决策,data/eng 写
+└── memory/                            # 复盘沉淀入口(与三层记忆对应)
 ```
+
+启用本地 git wiki(B 阶段验收形态):
+
+```yaml
+- id: team-doc-git
+  name: 'dsh-orgos-doc-git/dsh'
+  disabled: false
+  config:
+    repoPath: '/path/to/team-wiki'   # 已有 git 仓库(远程先 clone 到此)
+    docsDir: 'docs'                  # 可选,默认 docs
+    credentialRef: dsh_orgos_team_wiki  # 可选:凭据值 = ssh 私钥文件路径
+```
+
+每次 `team_doc_create/update` 都会 commit(`docs: <title>`)并 push,git log 即全量历史;文档级 CAS 以 HEAD 作为 `ref.version`。
 
 **外部第三方文档(飞书多维表格,doc-feishu provider)**:需求池/任务表同步到飞书,团队可在 IM 之外查表。配置(`team-doc-feishu` 行,`disabled` 模板,启用后按需配):
 

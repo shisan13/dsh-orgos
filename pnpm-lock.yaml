@@ -16,6 +16,12 @@ importers:
       dsh-orgos-doc-feishu:
         specifier: workspace:^
         version: link:../doc-feishu
+      dsh-orgos-doc-feishu-docs:
+        specifier: workspace:^
+        version: link:../doc-feishu-docs
+      dsh-orgos-doc-git:
+        specifier: workspace:^
+        version: link:../doc-git
       dsh-orgos-im-dingtalk:
         specifier: workspace:^
         version: link:../im-dingtalk
@@ -70,6 +76,44 @@ importers:
         version: 4.1.10(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0))
 
   packages/doc-feishu:
+    dependencies:
+      dsh-orgos-core:
+        specifier: workspace:^
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: ^4.0.0
+        version: 4.1.10(vitest@4.1.10)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.10(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0))
+
+  packages/doc-feishu-docs:
+    dependencies:
+      dsh-orgos-core:
+        specifier: workspace:^
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: ^4.0.0
+        version: 4.1.10(vitest@4.1.10)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.10(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0))
+
+  packages/doc-git:
     dependencies:
       dsh-orgos-core:
         specifier: workspace:^

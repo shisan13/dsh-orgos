@@ -224,15 +224,39 @@ team_delegate
 
 ### 3.3 Communication media
 
-**Internal md documents (team knowledge directory)**: all artifacts land as md with numbered names; the writer owns updates:
+**Team knowledge base (`team_doc_*` tools, B stage)**: members read/write the shared knowledge directory through one tool set, regardless of backend. `team_doc_list/read/search` to browse, `team_doc_create/update` to write (read first and pass `expectedVersion` on update to avoid overwriting others — CAS). Backends are pluggable DocumentProviders:
+
+| provider id | backend | doc = | enable (bundle rows, `disabled` templates) |
+|-------------|---------|-------|---------------------------------------------|
+| `git-wiki` | local/remote git repo | md file (title = file name) | `team-doc-git` row: `config.repoPath` (+ optional `docsDir`/`credentialRef`) |
+| `feishu-docs` | Feishu cloud docx | cloud document | `team-doc-feishu-docs` row: `config.credentialRef` (same `appId:appSecret` format as im-feishu) |
+| `feishu-bitable` | Feishu Bitable | table row (title/body fields) | `team-doc-feishu` row (below) |
+
+Knowledge base ≠ three-tier memory: `team_doc_*` stores **full assets** (PRD/design/decision full text), `team_memory_save` stores **distilled facts** — model chooses by description, data is not copied across.
+
+**Internal md documents (git wiki layout)**: all artifacts land as md with numbered names; the writer owns updates:
 
 ```
-team-state/team-wiki/           # or docs/ under member workspaces
-├── docs/prd/2026-001-QuantApp-PRD.md   # written by pm-1
-├── docs/tech/2026-001-技术方案.md      # written by tech-director/leads
-├── docs/tech/决策记录-2026-001.md      # technical decisions (data/eng)
-└── docs/memory/                          # retrospective entry (maps to three-tier memory)
+<repoPath>/docs/              # git wiki repo (team-doc-git row points here)
+├── prd/2026-001-QuantApp-PRD.md      # written by pm-1
+├── tech/2026-001-技术方案.md         # written by tech-director/leads
+├── tech/决策记录-2026-001.md         # technical decisions (data/eng)
+└── memory/                           # retrospective entry (maps to three-tier memory)
 ```
+
+Enable the local git wiki (B stage acceptance shape):
+
+```yaml
+- id: team-doc-git
+  name: 'dsh-orgos-doc-git/dsh'
+  disabled: false
+  config:
+    repoPath: '/path/to/team-wiki'   # an existing git repo (clone first if remote)
+    docsDir: 'docs'                  # optional, defaults to docs
+    credentialRef: dsh_orgos_team_wiki  # optional: value = ssh private-key path
+```
+
+Every `team_doc_create/update` commits (`docs: <title>`) and pushes, so the whole history is visible in git log — per-document CAS uses HEAD as `ref.version`.
 
 **External third-party docs (Feishu Bitable, doc-feishu provider)**: sync the demand pool / task tables to Feishu for viewing outside IM. Config (the `team-doc-feishu` row, a `disabled` template; enable and configure as needed):
 

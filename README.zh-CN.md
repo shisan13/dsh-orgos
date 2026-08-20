@@ -221,7 +221,10 @@ packages/
 ├── im-gateway/    # MessageGateway seam + 消息规范化
 ├── im-feishu/     # 飞书适配器(WS 长连接,已实测)
 ├── im-telegram/ wecom/ dingtalk/ slack/ discord/ whatsapp/
-├── tools/         # 团队工具(delegate/status/mail/task/memory/setup(含 replace)/doctor/run)
+├── tools/         # 团队工具(delegate/status/mail/task/memory/setup(含 replace)/doctor/run/doc_*)
+├── doc-git/       # git wiki 文档 provider(B 阶段:团队知识库 md 后端)
+├── doc-feishu/    # 飞书多维表格文档 provider(team_doc_* 后端之一)
+├── doc-feishu-docs/ # 飞书云文档(docx)文档 provider(B 阶段)
 ├── ui/            # Client 半(团队室数据加载器)
 └── bundle/        # dsh-orgos 组合包(dsh.bundle manifest)
 examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
@@ -233,7 +236,7 @@ examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
 |------|------|
 | M1 核心 + 飞书 + 双端实跑 | ✅ 完成 |
 | M2 全 IM + 审批 + Run 数据 + 三层记忆 + 知识交接 + 扩展面接口 | 🔨 进行中(飞书与 Telegram 已真实凭据实跑;预设已挂官方 subagent/workflow 派生工具;任务板 CAS;剩:whatsapp/slack/discord/钉钉/企微真实凭据联调) |
-| M3 SQLite + 文档 provider + 发布 | 🔲 计划中 |
+| M3 SQLite + 文档 provider + 发布 | 🔲 计划中(B 阶段已提前落地 git-wiki/feishu-docs/feishu-bitable 三 provider 与 team_doc_* 工具) |
 | M4 集团联邦 + 多租户 + 审计 | 🔲 规划预留(接口已定义) |
 
 ## 文档

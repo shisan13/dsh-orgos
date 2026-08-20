@@ -12,17 +12,19 @@
   ],
   "dependencies": {
     "dsh-orgos-core": "workspace:^",
-    "dsh-orgos-im-gateway": "workspace:^",
+    "dsh-orgos-doc-feishu": "workspace:^",
+    "dsh-orgos-doc-feishu-docs": "workspace:^",
+    "dsh-orgos-doc-git": "workspace:^",
+    "dsh-orgos-im-dingtalk": "workspace:^",
+    "dsh-orgos-im-discord": "workspace:^",
     "dsh-orgos-im-feishu": "workspace:^",
-    "dsh-orgos-tools": "workspace:^",
-    "dsh-orgos-ui": "workspace:^",
+    "dsh-orgos-im-gateway": "workspace:^",
+    "dsh-orgos-im-slack": "workspace:^",
     "dsh-orgos-im-telegram": "workspace:^",
     "dsh-orgos-im-wecom": "workspace:^",
-    "dsh-orgos-im-dingtalk": "workspace:^",
-    "dsh-orgos-im-slack": "workspace:^",
-    "dsh-orgos-im-discord": "workspace:^",
     "dsh-orgos-im-whatsapp": "workspace:^",
-    "dsh-orgos-doc-feishu": "workspace:^"
+    "dsh-orgos-tools": "workspace:^",
+    "dsh-orgos-ui": "workspace:^"
   },
   "dsh": {
     "bundle": {

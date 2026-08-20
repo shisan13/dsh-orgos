@@ -11,6 +11,8 @@
 | **B 混合(介质云化)** | 仍单进程 | + 内部 md 迁入共享 git 仓库(team wiki),成员经 git 读写 | team-state 仍在中央实例 | 介质跨机、成员暂不分机 |
 | **C 多机(成员远程化)** | 成员 = 独立进程/独立机器(MemberBackend 的 member-acp / member-dsh-sdk 后端) | 共享 git wiki + doc-feishu;会话注入走官方 ACP/SDK | team-state 由中央实例持有(单写者),成员远程接入 | 跨服务器分布式虚拟团队 |
 
+> **B 阶段实现(已落地)**:介质不再靠裸 git,而是统一工具——成员用一套 `team_doc_*`(list/read/create/update/search,`expectedVersion` 做 CAS)读写可插拔文档 provider:`git-wiki`(`team-doc-git` 行,md 文件落在 git 仓库,每次写入自动 commit+push)、`feishu-docs`(`team-doc-feishu-docs` 行,飞书云文档)、`feishu-bitable`(`team-doc-feishu` 行,多维表格行)。三行均为 bundle `disabled` 模板,profile 层启用并配置。知识库存**完整资产**;三层记忆(`team_memory_*`)继续存**提炼事实**。
+
 **判断口诀**:通信介质与执行位置是两件事,可分别演进——先让介质云化(B),再让成员远程化(C)。
 
 ## 2. 大项目全研发周期:每一步用什么
@@ -51,7 +53,7 @@
 
 ## 4. 多机落地路径(基于官方能力,非自研)
 
-1. **介质云化(B,低门槛)**:team wiki 建 git 仓库;成员用现有 fs/bash 工具 git 读写;md 引用规则不变。
+1. **介质云化(B,已落地)**:profile 层启用文档 provider 行(`team-doc-git` 指向 git wiki 仓库,可选 `team-doc-feishu-docs`/`team-doc-feishu` 接飞书后端);成员经 `team_doc_*` 工具读写知识库(底层自动 git commit/push);md 引用规则不变。
 2. **成员远程化(C,M3+)**:MemberBackend seam(ADR-002 预留)新增两个后端,包装官方 provider:
    - `member-acp`:官方 `subagent-acp`(子进程跑 ACP 客户端,可部署到远程机器,经 stdio/SSH 桥接);
    - `member-dsh-sdk`:官方 `subagent-dsh-sdk`(子进程 = 完整对等 DSH 运行时,组合/会话/模型自持)。

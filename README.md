@@ -211,7 +211,10 @@ packages/
 ├── im-gateway/    # MessageGateway seam + message normalization
 ├── im-feishu/     # Feishu adapter (WS long connection, verified)
 ├── im-telegram/ wecom/ dingtalk/ slack/ discord/ whatsapp/
-├── tools/         # Team tools (delegate/status/mail/task/memory/setup (incl. replace)/doctor/run)
+├── tools/         # Team tools (delegate/status/mail/task/memory/setup (incl. replace)/doctor/run/doc_*)
+├── doc-git/       # git wiki document provider (B stage: md backend of the team knowledge base)
+├── doc-feishu/    # Feishu Bitable document provider (one team_doc_* backend)
+├── doc-feishu-docs/ # Feishu cloud docx document provider (B stage)
 ├── ui/            # Client half (Team Room view)
 └── bundle/        # dsh-orgos bundle (dsh.bundle manifest)
 examples/          # Team config samples (squad/department/conglomerate/multi-bot groups)
@@ -223,7 +226,7 @@ examples/          # Team config samples (squad/department/conglomerate/multi-bo
 |------|------|
 | M1 Core + Feishu + end-to-end run | ✅ Done |
 | M2 All IMs + approval + run data + three-tier memory + knowledge handover + extension API | 🔨 In progress (feishu & telegram live with real credentials; official-subagent/workflow delegation tools added to presets; TaskBoard CAS; remaining: real-credential runs for whatsapp/slack/discord/dingtalk/wecom) |
-| M3 SQLite + document providers + release | 🔲 Planned |
+| M3 SQLite + document providers + release | 🔲 Planned (B stage has already landed git-wiki/feishu-docs/feishu-bitable providers + team_doc_* tools ahead of schedule) |
 | M4 Conglomerate federation + multi-tenancy + audit | 🔲 Reserved (interfaces defined) |
 
 ## Documentation

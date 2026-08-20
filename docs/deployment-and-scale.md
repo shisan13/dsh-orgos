@@ -11,6 +11,8 @@
 | **B Hybrid (media goes cloud)** | still one process | + internal md moved into a shared git repo (team wiki), members read/write via git | team-state stays on the central instance | media across machines, members not yet |
 | **C Multi-machine (members go remote)** | members = separate processes/machines (member-acp / member-dsh-sdk backends) | shared git wiki + doc-feishu; session injection via official ACP/SDK | team-state owned by the central instance (single writer); members attach remotely | distributed virtual teams across servers |
 
+> **B stage implementation (landed)**: media is now tool-driven, not raw git — members use one tool set (`team_doc_*`: list/read/create/update/search, CAS via `expectedVersion`) over pluggable DocumentProviders: `git-wiki` (`team-doc-git` row, md files in a git repo, every write commits+pushes), `feishu-docs` (`team-doc-feishu-docs` row, cloud docx), `feishu-bitable` (`team-doc-feishu` row, table rows). All three bundle rows are `disabled` templates — enable and configure in your profile. Knowledge base stores **full assets**; three-tier memory (`team_memory_*`) keeps storing **distilled facts**.
+
 **Rule of thumb**: communication media and execution location are two separate axes — move the media to the cloud first (B), then move members remote (C).
 
 ## 2. Large-project lifecycle: what carries each step
@@ -51,7 +53,7 @@ Key points:
 
 ## 4. Multi-machine path (official capabilities, not self-built)
 
-1. **Media goes cloud (B, low bar)**: create the team wiki git repo; members use existing fs/bash tools with git; md reference rules unchanged.
+1. **Media goes cloud (B, landed)**: enable a doc-provider row in your profile (`team-doc-git` for the git wiki, optionally `team-doc-feishu-docs`/`team-doc-feishu` for Feishu backends); members read/write the knowledge base through `team_doc_*` tools (git commits/pushes under the hood); md reference rules unchanged.
 2. **Members go remote (C, M3+)**: MemberBackend seam (reserved in ADR-002) gains two backends wrapping official providers:
    - `member-acp`: official `subagent-acp` (child process driven as an ACP client, deployable to remote machines via stdio/SSH bridging);
    - `member-dsh-sdk`: official `subagent-dsh-sdk` (child process = a full peer DSH runtime with its own composition/session/model).
