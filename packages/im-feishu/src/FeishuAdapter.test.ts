@@ -371,3 +371,69 @@ describe('Given FeishuAdapter 生命周期(record-replay)', () => {
     await adapter.stop()
   })
 })
+
+
+describe('Given 断线补偿与调试通道(Pro 增强)', () => {
+  function fakeTransportLocal(): {
+    transport: FeishuTransport
+    emit: (payload: unknown) => void
+  } {
+    const state = { emit: (_payload: unknown) => {} }
+    const transport: FeishuTransport = {
+      async connect(handlers) {
+        state.emit = (payload) => handlers.onEvent(payload)
+        return { disconnect: async () => {}, selfOpenId: () => BOT_OPEN_ID }
+      },
+      async sendText() {},
+      async sendCard() {},
+    }
+    return { transport, emit: (payload: unknown) => state.emit(payload) }
+  }
+
+  async function flushLocal(): Promise<void> {
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0))
+  }
+
+  it('When setWatchChats + 补拉成功 THEN 事件补投且单群失败降级不阻塞', async () => {
+    const t = fakeTransportLocal()
+    const debug: string[] = []
+    const inbound: string[] = []
+    const fetchRecent = vi.fn(async (chatId: string) => {
+      if (chatId === 'oc_good') {
+        return [{ sender: { sender_id: { open_id: 'ou_1' } }, message: { message_id: 'om_comp', chat_id: 'oc_good', chat_type: 'group', message_type: 'text', content: JSON.stringify({ text: '补投消息' }) } }]
+      }
+      throw new Error('permission denied')
+    })
+    ;(t.transport as unknown as { fetchRecentMessages: unknown }).fetchRecentMessages = fetchRecent
+    const adapter = new FeishuAdapter({
+      credentials: { appId: 'a', appSecret: 's' },
+      transport: t.transport,
+      onInbound: (msg) => { inbound.push(`${msg.kind}:${msg.peer.id}:${msg.messageId}`) },
+      onDebug: (m) => debug.push(m),
+    })
+    await adapter.start()
+    adapter.setWatchChats(['oc_good', 'oc_bad'])
+    await flushLocal()
+    // 补投:oc_good 的事件进入入站链路(mention?群消息无 @ → text)
+    expect(inbound).toEqual(['text:oc_good:om_comp'])
+    expect(debug.some((d) => d.includes('watch-chats set'))).toBe(true)
+    expect(debug.some((d) => d.includes('compensate chat=oc_good fetched=1'))).toBe(true)
+    expect(debug.some((d) => d.includes('compensate-failed chat=oc_bad'))).toBe(true)
+    await adapter.stop()
+  })
+
+  it('When 规范化失败 THEN onDebug 记录 normalize-fail 且不投递', async () => {
+    const t = fakeTransportLocal()
+    const debug: string[] = []
+    const adapter = new FeishuAdapter({
+      credentials: { appId: 'a', appSecret: 's' },
+      transport: t.transport,
+      onDebug: (m) => debug.push(m),
+    })
+    await adapter.start()
+    t.emit({ schema: '2.0', header: { event_type: 'im.message.receive_v1' }, event: { sender: { sender_id: {} }, message: { chat_id: 'oc_x', chat_type: 'group' } } })
+    await flushLocal()
+    expect(debug.some((d) => d.includes('normalize-fail'))).toBe(true)
+    await adapter.stop()
+  })
+})

@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "description": "dsh-orgos 核心库:domain/ 纯领域内核(组织树/路由/委派状态机/scope 投影/digest/ACL,harness-agnostic)+ dsh/ 绑定层(Pro 阶段)",
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "lib/domain/index.js",
+  "types": "lib/domain/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/index.d.ts",
-      "default": "./lib/index.js"
+      "types": "./lib/domain/index.d.ts",
+      "default": "./lib/domain/index.js"
     },
     "./dsh": {
       "types": "./lib/dsh/index.d.ts",

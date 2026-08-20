@@ -8,7 +8,7 @@ import { DelegationEngine, Mailbox, OrgTree, TaskBoard } from 'dsh-orgos-core'
 import type { TeamConfig } from 'dsh-orgos-core'
 import { teamDelegate, teamRetry } from './delegate.ts'
 import { teamMailSend, teamMailRecv } from './mail.ts'
-import { teamTaskCreate, teamTaskClaim, teamTaskDone, teamTaskCancel, teamTaskList } from './task.ts'
+import { teamTaskCreate, teamTaskClaim, teamTaskDone, teamTaskCancel, teamTaskRemove, teamTaskList } from './task.ts'
 import { teamStatus } from './status.ts'
 import { setupInit, setupValidate, planAtomicUpdate } from './setup.ts'
 import { TEMPLATES } from './templates.ts'
@@ -190,6 +190,60 @@ describe('Given team_task_*(FR-C2;T10 隐私裁剪)', () => {
     const cancelDone = teamTaskCancel({ id: idB }, leadCtx)
     expect(cancelDone.ok).toBe(false)
     expect(cancelDone.code).toBe('STATE_ILLEGAL')
+  })
+
+  it('When CAS:expectedRevision 不匹配 Then STALE_REVISION;匹配则递增', () => {
+    const leadCtx = makeCtx({ positionId: 'frontend-lead', kind: 'agent' })
+    const created = teamTaskCreate({ teamId: 'team-front', title: 'CAS 测试', assignee: 'fe-1' }, leadCtx)
+    const id = (created.data as { taskId: string; revision: number }).taskId
+    const rev1 = (created.data as { revision: number }).revision
+    expect(rev1).toBe(1)
+    const memberCtx = makeCtx({ positionId: 'fe-1', kind: 'agent' })
+    memberCtx.taskboard = leadCtx.taskboard
+    // 陈旧 revision 被拒
+    const stale = teamTaskClaim({ id, expectedRevision: 99 }, memberCtx)
+    expect(stale.ok).toBe(false)
+    expect(stale.code).toBe('STALE_REVISION')
+    // 正确 revision 通过且 rev 递增
+    const claim = teamTaskClaim({ id, expectedRevision: 1 }, memberCtx)
+    expect(claim.ok).toBe(true)
+    expect((claim.data as { revision: number }).revision).toBe(2)
+    // 不传 expectedRevision 保持宽松(向后兼容)
+    const done = teamTaskDone({ id }, memberCtx)
+    expect(done.ok).toBe(true)
+    expect((done.data as { revision: number }).revision).toBe(3)
+  })
+
+  it('When deps 与 remove(墓碑)Then 依赖校验与 TASK_HAS_DEPENDENTS', () => {
+    const leadCtx = makeCtx({ positionId: 'frontend-lead', kind: 'agent' })
+    const a = teamTaskCreate({ teamId: 'team-front', title: 'A', assignee: 'fe-1' }, leadCtx)
+    const idA = (a.data as { taskId: string }).taskId
+    // 依赖不存在任务 → 拒绝
+    const bad = teamTaskCreate({ teamId: 'team-front', title: 'B', assignee: 'fe-1', deps: ['ghost'] }, leadCtx)
+    expect(bad.ok).toBe(false)
+    expect(bad.code).toBe('TASK_NOT_FOUND')
+    // 合法依赖
+    const b = teamTaskCreate({ teamId: 'team-front', title: 'B', assignee: 'fe-1', deps: [idA] }, leadCtx)
+    expect(b.ok).toBe(true)
+    const idB = (b.data as { taskId: string }).taskId
+    // 删除被依赖任务 → 拒绝
+    const blocked = teamTaskRemove({ id: idA }, leadCtx)
+    expect(blocked.ok).toBe(false)
+    expect(blocked.code).toBe('TASK_HAS_DEPENDENTS')
+    // 删除 B 成功(墓碑);再次操作 → TASK_DELETED
+    const removed = teamTaskRemove({ id: idB }, leadCtx)
+    expect(removed.ok).toBe(true)
+    expect(removed.text).toContain('墓碑保留')
+    const memberCtx = makeCtx({ positionId: 'fe-1', kind: 'agent' })
+    memberCtx.taskboard = leadCtx.taskboard
+    const again = teamTaskClaim({ id: idB }, memberCtx)
+    expect(again.ok).toBe(false)
+    expect(again.code).toBe('TASK_DELETED')
+    // 列表不再显示已删除任务(复用同一 ctx)
+    const list = teamTaskList({}, memberCtx)
+    expect(list.text).toContain('A → fe-1')
+    expect(list.text).not.toContain('B → fe-1')
+    expect(list.text).toContain('rev')
   })
 
   it('When T10 同级 agent 看 human 任务列表 Then 输出裁剪标记', () => {

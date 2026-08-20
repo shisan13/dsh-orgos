@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 |------|------|
 | 文档版本 | v1.0(2026-08-20,基于 DSH rc.8) |
-| 状态 | 提案(待用户决策) |
+| 状态 | 已决策(2026-08-20,用户拍板;见 [ADR-006](decisions/ADR-006-官方融合互补策略.md)) |
 | 上游基线 | DSH rc.8(536 commits;官方 Agent Teams 孵化、subagent 产品化、code-runtime-python 发布) |
 | 关联文档 | [技术设计](dsh-orgos-技术设计-完整版.md)、[ADR-005](decisions/ADR-005-官方AgentTeams关系.md)、[rc8 适配分析](rc8-适配分析.md) |
 
@@ -192,7 +192,7 @@
 | 官方 subagent 不变量未来放宽(四冲突消失) | 正是 ADR-002 预留的 seam 吸收点——届时 member-session 可退为可选后端,零重写 |
 | profile 装配脆弱性(tmp tgz/双进程) | 阶段 1 npm 发布 + 单进程部署文档 + 打包固化 |
 
-## 8. 决策点(请用户拍板)
+## 8. 决策点(已拍板 2026-08-20)
 
 1. 是否采纳本方案总纲(三原则 + 三层架构)?
 2. TaskBoard CAS 补强、FR-D6 预设挂官方工具、bundle 挂 codex/claude 行——是否列入 M2 收尾立即做?

@@ -56,8 +56,8 @@ export function apply(ctx: Ctx): void {
   })
 }
 
-/** 生产 transport:@larksuiteoapi/node-sdk WSClient(运行时动态加载,避免测试环境膨胀) */
-function createLarkTransport(credentials: FeishuCredentials): FeishuTransport {
+/** 生产 transport:@larksuiteoapi/node-sdk WSClient(运行时动态加载,避免测试环境膨胀)。导出供测试与未来复用。 */
+export function createLarkTransport(credentials: FeishuCredentials): FeishuTransport {
   return {
     async connect(cb) {
       const lark = await import('@larksuiteoapi/node-sdk')
@@ -159,7 +159,7 @@ function createLarkTransport(credentials: FeishuCredentials): FeishuTransport {
 }
 
 /** 获取 tenant_access_token(补偿拉取/自检共用;失败抛出由上层降级) */
-async function fetchTenantToken(credentials: FeishuCredentials): Promise<string> {
+export async function fetchTenantToken(credentials: FeishuCredentials): Promise<string> {
   const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -171,7 +171,7 @@ async function fetchTenantToken(credentials: FeishuCredentials): Promise<string>
 }
 
 /** 获取 bot 自身 open_id(用于群 @提及判定;失败返回 undefined 不阻塞连接) */
-async function fetchBotOpenId(credentials: FeishuCredentials): Promise<string | undefined> {
+export async function fetchBotOpenId(credentials: FeishuCredentials): Promise<string | undefined> {
   try {
     const tokRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
       method: 'POST',

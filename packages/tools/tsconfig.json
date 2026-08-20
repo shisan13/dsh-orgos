@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "dsh-orgos-core": ["../core/lib/index.d.ts"],
+      "dsh-orgos-core": ["../core/lib/domain/index.d.ts"],
       "dsh-orgos-core/dsh/*": ["../core/lib/dsh/*"],
       "dsh-orgos-im-gateway": ["../im-gateway/lib/index.d.ts"]
     },
