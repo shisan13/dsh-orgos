@@ -38,6 +38,11 @@ function makeService(overrides: Record<string, (...args: unknown[]) => unknown> 
     memorySave(...args: unknown[]) { calls.push({ method: 'memorySave', args }); return { ok: true } },
     memoryList(...args: unknown[]) { calls.push({ method: 'memoryList', args }); return { entries: [] } },
     doctor(...args: unknown[]) { calls.push({ method: 'doctor', args }); return { checks: [] } },
+    docList(...args: unknown[]) { calls.push({ method: 'docList', args }); return { ok: true, items: [] } },
+    docGet(...args: unknown[]) { calls.push({ method: 'docGet', args }); return { ok: true, doc: {} } },
+    docCreate(...args: unknown[]) { calls.push({ method: 'docCreate', args }); return { ok: true, ref: {} } },
+    docUpdate(...args: unknown[]) { calls.push({ method: 'docUpdate', args }); return { ok: true, ref: {} } },
+    docSearch(...args: unknown[]) { calls.push({ method: 'docSearch', args }); return { ok: true, items: [] } },
     setupInit(...args: unknown[]) { calls.push({ method: 'setupInit', args }); return { ok: true } },
     bindRoute(...args: unknown[]) { calls.push({ method: 'bindRoute', args }); return { ok: true } },
     unbindRoute(...args: unknown[]) { calls.push({ method: 'unbindRoute', args }); return { ok: true } },
@@ -73,12 +78,14 @@ describe('registerTeamTools(全工具注册与 execute 转发)', () => {
   const { service, calls } = makeService()
   const tools = registerAll(service)
 
-  it('GIVEN core 服务存在 WHEN 注册 THEN 12 个工具全部在列', () => {
+  it('GIVEN core 服务存在 WHEN 注册 THEN 17 个工具全部在列', () => {
     const names = tools.defs.map((d) => d.name).sort()
     expect(names).toEqual([
-      'team_delegate', 'team_doctor', 'team_mail_recv', 'team_mail_send',
-      'team_memory_recall', 'team_memory_save', 'team_run', 'team_setup',
-      'team_status', 'team_task_claim', 'team_task_complete', 'team_task_create',
+      'team_delegate', 'team_doc_create', 'team_doc_list', 'team_doc_read',
+      'team_doc_search', 'team_doc_update', 'team_doctor', 'team_mail_recv',
+      'team_mail_send', 'team_memory_recall', 'team_memory_save', 'team_run',
+      'team_setup', 'team_status', 'team_task_claim', 'team_task_complete',
+      'team_task_create',
     ])
   })
 
@@ -132,6 +139,84 @@ describe('registerTeamTools(全工具注册与 execute 转发)', () => {
     expect(calls[0]?.args[2]).toBe('note') // kind 缺省
     expect(calls[4]?.args[1]).toBe('team')
     expect(calls[4]?.args[2]).toBe('contribution') // kind 缺省
+  })
+})
+
+describe('registerTeamTools(文档工具)', () => {
+  const calls: Array<{ method: string; args: unknown[] }> = []
+  const fakeService = {
+    docList(...args: unknown[]) {
+      calls.push({ method: 'docList', args })
+      return { ok: true, items: [] }
+    },
+    docGet(...args: unknown[]) {
+      calls.push({ method: 'docGet', args })
+      return { ok: true, doc: {} }
+    },
+    docCreate(...args: unknown[]) {
+      calls.push({ method: 'docCreate', args })
+      return { ok: true, ref: {} }
+    },
+    docUpdate(...args: unknown[]) {
+      calls.push({ method: 'docUpdate', args })
+      return { ok: true, ref: {} }
+    },
+    docSearch(...args: unknown[]) {
+      calls.push({ method: 'docSearch', args })
+      return { ok: true, items: [] }
+    },
+  }
+
+  function registerAllDoc(): FakeTools {
+    const tools = makeTools()
+    registerTeamTools({ get: (k: string) => (k === 'teamService' ? fakeService : undefined) }, tools)
+    return tools
+  }
+
+  it('GIVEN core 服务存在 WHEN 注册 THEN 五个 team_doc_* 工具在列且 parameters 无 undefined', () => {
+    const tools = registerAllDoc()
+    for (const name of ['team_doc_list', 'team_doc_read', 'team_doc_create', 'team_doc_update', 'team_doc_search']) {
+      const d = tools.defs.find((x) => x.name === name)
+      expect(d, name).toBeDefined()
+      expect(JSON.stringify(d?.parameters).includes('undefined'), name).toBe(false)
+    }
+  })
+
+  it('GIVEN 成员会话 WHEN 文档工具 execute THEN 以岗位身份转发(缺省参数回退)', async () => {
+    calls.length = 0
+    const tools = registerAllDoc()
+    await def(tools, 'team_doc_list').execute({}, EXEC)
+    await def(tools, 'team_doc_read').execute({ docId: 'a.md' }, EXEC)
+    await def(tools, 'team_doc_create').execute({ provider: 'git-wiki', title: 't' }, EXEC)
+    await def(tools, 'team_doc_update').execute({ docId: 'a.md', body: 'x', expectedVersion: 'v1' }, EXEC)
+    await def(tools, 'team_doc_search').execute({ query: '周报' }, EXEC)
+    expect(calls.map((c) => `${c.method}:${c.args[0]}`)).toEqual([
+      'docList:coder-1', 'docGet:coder-1', 'docCreate:coder-1',
+      'docUpdate:coder-1', 'docSearch:coder-1',
+    ])
+    expect(calls[0]?.args[2]).toBe(50) // list 默认 limit
+    expect(calls[2]?.args[3]).toBe('') // create body 默认空
+    expect(calls[3]?.args[3]).toEqual({ title: undefined, body: 'x' }) // patch 形状
+    expect(calls[3]?.args[4]).toBe('v1') // expectedVersion 透传
+    expect(calls[4]?.args[3]).toBe(20) // search 默认 limit
+  })
+
+  it('GIVEN provider 未指定 WHEN team_doc_update execute THEN 以 undefined provider 转发(服务端消歧)', async () => {
+    calls.length = 0
+    const tools = registerAllDoc()
+    await def(tools, 'team_doc_update').execute({ docId: 'd1', title: '新标题' }, EXEC)
+    expect(calls[0]?.method).toBe('docUpdate')
+    expect(calls[0]?.args[1]).toBeUndefined()
+  })
+
+  it('GIVEN STALE 冲突 WHEN team_doc_update THEN 服务端结果原样透传', async () => {
+    const staleService = {
+      docUpdate: () => ({ ok: false, reason: '文档已被他人修改(版本冲突)', code: 'STALE_DOCUMENT', currentVersion: 'v9' }),
+    }
+    const tools = makeTools()
+    registerTeamTools({ get: (k: string) => (k === 'teamService' ? staleService : undefined) }, tools)
+    const r = await def(tools, 'team_doc_update').execute({ docId: 'a.md' }, EXEC)
+    expect(r).toEqual({ ok: false, reason: '文档已被他人修改(版本冲突)', code: 'STALE_DOCUMENT', currentVersion: 'v9' })
   })
 })
 

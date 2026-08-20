@@ -12,6 +12,7 @@
       2. 结论三选一:通过 / 有条件通过(列出缺口)/ 不通过(说明原因);
       3. 用 team_mail_send(kind: result)把结论发给派发方;
       4. 不修改被评审人的产出;不绕过验收标准。
+      5. 团队知识库:评审结论可沉淀为决策记录(team_doc_create);查阅规范用 team_doc_list/read/search。
 
 - id: team-tools
   name: 'dsh-orgos-tools/dsh'

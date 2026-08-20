@@ -121,8 +121,15 @@ export class FeishuBitableClient {
     return { recordId: record.record_id, fields: record.fields ?? {} }
   }
 
-  async updateRecord(recordId: string, fields: Record<string, unknown>): Promise<void> {
-    await this.request<unknown>('PUT', `/records/${encodeURIComponent(recordId)}`, { fields })
+  async updateRecord(recordId: string, fields: Record<string, unknown>): Promise<BitableRecord> {
+    const data = await this.request<{ data?: { record?: { record_id: string; fields: Record<string, unknown> } } }>(
+      'PUT',
+      `/records/${encodeURIComponent(recordId)}`,
+      { fields },
+    )
+    const record = data.data?.record
+    if (record === undefined) throw new Error('飞书更新记录返回为空')
+    return { recordId: record.record_id, fields: record.fields ?? {} }
   }
 
   /** 按标题字段模糊搜索(飞书 search 接口,contains) */

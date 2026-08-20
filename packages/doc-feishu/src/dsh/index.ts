@@ -14,7 +14,7 @@ export const name = 'dsh-orgos-doc-feishu'
 // 硬依赖:credentials 异步 init → inject 保证就绪;teamService 由 team-core 行提供
 export const inject = ['credentials', 'teamService']
 
-import { FeishuBitableClient } from 'dsh-orgos-doc-feishu'
+import { FeishuBitableClient } from '../index.js'
 import type { DocumentProvider, DocumentRef } from 'dsh-orgos-core/dsh/extensions'
 
 interface DocFeishuConfig {
@@ -56,26 +56,32 @@ export async function apply(ctx: Ctx, config: DocFeishuConfig): Promise<void> {
       label: config.label ?? '飞书多维表格',
       async listDocuments(_scope, opts) {
         const records = await client.listRecords(opts?.limit ?? 50)
-        return records.map(toRef)
+        return records.map((r) => toRef(client.titleField, r))
       },
       async getDocument(ref) {
         const record = await client.getRecord(ref.id)
         if (record === undefined) return undefined
-        return { ref: toRef(record), body: String(record.fields[client.bodyField] ?? '') }
+        return { ref: toRef(client.titleField, record), body: String(record.fields[client.bodyField] ?? '') }
       },
       async createDocument(_scope, doc) {
         const record = await client.createRecord({ [client.titleField]: doc.title, [client.bodyField]: doc.body })
-        return toRef(record)
+        return toRef(client.titleField, record)
       },
-      async updateDocument(ref, patch) {
+      async updateDocument(ref, patch, opts) {
+        // 多维表格行无后端 revision 概念:CAS 由未来 provider 支持;
+        // 提供 expectedVersion 且与 ref.version 不符时仍按不匹配拒绝(保守,防陈旧覆盖)。
+        if (opts?.expectedVersion !== undefined && ref.version !== undefined && opts.expectedVersion !== ref.version) {
+          return { ok: false, code: 'STALE_DOCUMENT', currentVersion: ref.version }
+        }
         const fields: Record<string, unknown> = {}
         if (patch.title !== undefined) fields[client.titleField] = patch.title
         if (patch.body !== undefined) fields[client.bodyField] = patch.body
-        await client.updateRecord(ref.id, fields)
+        const record = await client.updateRecord(ref.id, fields)
+        return { ok: true, ref: toRef(client.titleField, record) }
       },
       async searchDocuments(query) {
         const records = await client.searchRecords(query)
-        return records.map(toRef)
+        return records.map((r) => toRef(client.titleField, r))
       },
     }
     ctx.teamService.registerDocumentProvider(provider)
@@ -85,10 +91,10 @@ export async function apply(ctx: Ctx, config: DocFeishuConfig): Promise<void> {
   }
 }
 
-/** record → DocumentRef(标题列 → title;updatedAt 由飞书字段兜底) */
-function toRef(record: { recordId: string; fields: Record<string, unknown> }): DocumentRef {
+/** record → DocumentRef(标题列 → title;titleField 可配置,不再硬编码「标题」) */
+function toRef(titleField: string, record: { recordId: string; fields: Record<string, unknown> }): DocumentRef {
   return {
     id: record.recordId,
-    title: String(record.fields['标题'] ?? ''),
+    title: String(record.fields[titleField] ?? ''),
   }
 }

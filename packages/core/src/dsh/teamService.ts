@@ -32,7 +32,7 @@ import {
 import type { NormalizedMessage } from 'dsh-orgos-im-gateway'
 import { SessionMemberRuntime, type MemberDef, type DshAgents, type AgentPresetsMount, type AgentDefaultModelLike } from './memberRuntime.js'
 import { atomicWriteTeamYml, createFileTeamStore, readTeamYml, type TeamStore } from './store.js'
-import type { DocumentProvider, OrgFederation } from './extensions.js'
+import type { DocumentProvider, DocumentContent, OrgFederation, DocListResult, DocGetResult, DocCreateResult, DocRouteUpdateResult, DocSearchResult, DocumentRef } from './extensions.js'
 
 export interface TeamServiceOptions {
   stateRoot: string
@@ -715,6 +715,14 @@ export class TeamService {
       ok: true,
       detail: this.federation ? `联邦已接入:${this.federation.nodeId}` : '联邦未接入(单实例运行;集团期经 setFederation 启用)',
     })
+    checks.push({
+      name: 'doc-providers',
+      ok: true,
+      detail:
+        this.documentProviders.size > 0
+          ? `文档 provider ${this.documentProviders.size} 个:${this.listDocumentProviders().map((p) => `${p.id}(${p.label})`).join(', ')}`
+          : '未注册文档 provider(team_doc_* 工具不可用;挂 doc-git/doc-feishu 行启用)',
+    })
     return { checks }
   }
 
@@ -730,6 +738,146 @@ export class TeamService {
   /** 扩展面:列出已注册文档 provider(可观测) */
   listDocumentProviders(): Array<{ id: string; label: string }> {
     return [...this.documentProviders.values()].map((p) => ({ id: p.id, label: p.label }))
+  }
+
+  // ---- 文档路由(team_doc_* 工具入口;B 阶段知识库能力)----
+  //
+  // 设计要点:
+  // - providerId 可省略:list/search 跨全部 provider 合并;get/update 按 id 定位,
+  //   命中多个 provider 时返回歧义提示,要求显式指定;
+  // - scope 投影:调用方岗位 → 所在团队节点,ref.teamId 若标注则必须落在
+  //   调用方节点或其管辖子树内(成员只见本 team;orchestrator 见管辖层);
+  // - 单个 provider 异常不阻断整体(隔离策略,与事件订阅者一致)。
+
+  /** 文档列表(合并多 provider;结果按可见性投影) */
+  async docList(viewerPositionId: string, providerId: string | undefined, limit = 50): Promise<DocListResult> {
+    if (!this.org) return { ok: false, reason: 'team_not_loaded' }
+    const { scope, viewerNode } = this.docViewer(viewerPositionId)
+    const providers = this.docTargetProviders(providerId)
+    if (providers === null) return { ok: false, reason: `文档 provider 未注册:${providerId ?? ''}` }
+    const items: Array<DocumentRef & { provider: string }> = []
+    for (const p of providers) {
+      try {
+        const refs = await p.listDocuments(scope, { limit })
+        items.push(...this.projectDocRefs(refs, viewerNode).map((r) => ({ ...r, provider: p.id })))
+      } catch {
+        /* 单 provider 故障不阻断其它 provider */
+      }
+    }
+    return sanitizeJson({ ok: true, items: items.slice(0, limit) }) as DocListResult
+  }
+
+  /** 文档读取(按 id 跨 provider 定位;多命中返回歧义提示) */
+  async docGet(viewerPositionId: string, providerId: string | undefined, docId: string): Promise<DocGetResult> {
+    if (!this.org) return { ok: false, reason: 'team_not_loaded' }
+    const located = await this.locateDoc(viewerPositionId, providerId, docId)
+    if (!located.ok) return { ok: false, reason: located.reason }
+    // locateDoc 成功保证 hits 非空(TS 收缩不跨函数边界)
+    const first = located.hits[0]!
+    return sanitizeJson({
+      ok: true,
+      doc: { ...first.doc, provider: first.provider.id },
+      ambiguous: located.hits.length > 1 ? located.hits.slice(1).map((h) => h.provider.id) : undefined,
+    }) as DocGetResult
+  }
+
+  /** 文档创建(必须显式 provider:落哪个知识库由调用方决定) */
+  async docCreate(viewerPositionId: string, providerId: string, title: string, body: string): Promise<DocCreateResult> {
+    if (!this.org) return { ok: false, reason: 'team_not_loaded' }
+    if (!providerId) {
+      return { ok: false, reason: `create 必须显式 provider(可选:${this.listDocumentProviders().map((p) => p.id).join('/') || '无已注册 provider'})` }
+    }
+    const provider = this.documentProviders.get(providerId)
+    if (provider === undefined) return { ok: false, reason: `文档 provider 未注册:${providerId}` }
+    const { scope } = this.docViewer(viewerPositionId)
+    const ref = await provider.createDocument(scope, { title, body })
+    return sanitizeJson({ ok: true, ref: { ...ref, provider: provider.id } }) as DocCreateResult
+  }
+
+  /** 文档更新(CAS:expectedVersion 与 provider 后端版本比对;STALE 透传) */
+  async docUpdate(
+    viewerPositionId: string,
+    providerId: string | undefined,
+    docId: string,
+    patch: { title?: string; body?: string },
+    expectedVersion?: string,
+  ): Promise<DocRouteUpdateResult> {
+    if (!this.org) return { ok: false, reason: 'team_not_loaded' }
+    const located = await this.locateDoc(viewerPositionId, providerId, docId)
+    if (!located.ok) return { ok: false, reason: located.reason }
+    if (located.hits.length > 1) {
+      return { ok: false, reason: `文档 ${docId} 在多个 provider 存在(${located.hits.map((h) => h.provider.id).join('/')}),请显式指定 provider` }
+    }
+    const { provider, doc } = located.hits[0]!
+    const result = await provider.updateDocument(doc.ref, patch, expectedVersion === undefined ? undefined : { expectedVersion })
+    if (!result.ok) {
+      return { ok: false, reason: '文档已被他人修改(版本冲突)', code: result.code, currentVersion: result.currentVersion }
+    }
+    return sanitizeJson({ ok: true, ref: { ...result.ref, provider: provider.id } }) as DocRouteUpdateResult
+  }
+
+  /** 文档搜索(合并多 provider;结果按可见性投影) */
+  async docSearch(viewerPositionId: string, providerId: string | undefined, query: string, limit = 20): Promise<DocSearchResult> {
+    if (!this.org) return { ok: false, reason: 'team_not_loaded' }
+    const { scope, viewerNode } = this.docViewer(viewerPositionId)
+    const providers = this.docTargetProviders(providerId)
+    if (providers === null) return { ok: false, reason: `文档 provider 未注册:${providerId ?? ''}` }
+    const items: Array<DocumentRef & { provider: string }> = []
+    for (const p of providers) {
+      try {
+        const refs = await p.searchDocuments(query, scope)
+        items.push(...this.projectDocRefs(refs, viewerNode).map((r) => ({ ...r, provider: p.id })))
+      } catch {
+        /* 单 provider 故障不阻断其它 provider */
+      }
+    }
+    return sanitizeJson({ ok: true, items: items.slice(0, limit) }) as DocSearchResult
+  }
+
+  /** 调用方视角:岗位 → 团队节点 + provider scope */
+  private docViewer(viewerPositionId: string): { scope: { teamId?: string }; viewerNode: string } {
+    const viewer = this.resolveViewer(viewerPositionId)
+    const viewerNode = this.org ? this.org.nodeOfPosition(viewer) : viewer
+    return { scope: { teamId: viewerNode === viewer ? undefined : viewerNode }, viewerNode }
+  }
+
+  /** provider 目标解析:undefined → 全部;显式 → 单个或 null(未注册) */
+  private docTargetProviders(providerId: string | undefined): DocumentProvider[] | null {
+    if (providerId === undefined) return [...this.documentProviders.values()]
+    const p = this.documentProviders.get(providerId)
+    return p === undefined ? null : [p]
+  }
+
+  /** 可见性投影:ref 未标注 teamId → 放行;标注 → 必须为调用方节点或其管辖子树 */
+  private projectDocRefs(refs: DocumentRef[], viewerNode: string): DocumentRef[] {
+    return refs.filter((r) => {
+      if (r.teamId === undefined) return true
+      if (!this.org || !this.org.hasNode(r.teamId)) return false
+      if (r.teamId === viewerNode) return true
+      return this.org.isAncestor(viewerNode, r.teamId)
+    })
+  }
+
+  /** 跨 provider 定位文档(可见性过滤后) */
+  private async locateDoc(
+    viewerPositionId: string,
+    providerId: string | undefined,
+    docId: string,
+  ): Promise<{ ok: true; hits: Array<{ provider: DocumentProvider; doc: DocumentContent }> } | { ok: false; reason: string }> {
+    const providers = this.docTargetProviders(providerId)
+    if (providers === null) return { ok: false, reason: `文档 provider 未注册:${providerId ?? ''}` }
+    const { viewerNode } = this.docViewer(viewerPositionId)
+    const hits: Array<{ provider: DocumentProvider; doc: DocumentContent }> = []
+    for (const p of providers) {
+      try {
+        const doc = await p.getDocument({ id: docId, title: '' })
+        if (doc !== undefined && this.projectDocRefs([doc.ref], viewerNode).length === 1) hits.push({ provider: p, doc })
+      } catch {
+        /* 单 provider 异常按未命中处理 */
+      }
+    }
+    if (hits.length === 0) return { ok: false, reason: `文档不存在:${docId}` }
+    return { ok: true, hits }
   }
 
   /** 扩展面:注入集团联邦(集团期启用;200 人期保持 undefined) */
@@ -814,6 +962,11 @@ export type TeamServiceFacade = Pick<
   | 'replaceOccupant'
   | 'registerDocumentProvider'
   | 'listDocumentProviders'
+  | 'docList'
+  | 'docGet'
+  | 'docCreate'
+  | 'docUpdate'
+  | 'docSearch'
   | 'setFederation'
   | 'onTeamEvent'
 >

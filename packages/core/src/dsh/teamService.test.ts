@@ -204,11 +204,12 @@ describe('TeamService(绑定层)', () => {
     expect(events.some(([e, p]) => e === 'team/member-status' && p.status === 'busy')).toBe(true)
   })
 
-  it('GIVEN 团队已加载 WHEN team_doctor THEN 四类检查全 ok', () => {
+  it('GIVEN 团队已加载 WHEN team_doctor THEN 六类检查全 ok(含文档 provider)', () => {
     const result = service.doctor()
-    expect(result.checks.length).toBe(5)
+    expect(result.checks.length).toBe(6)
     expect(result.checks.every((c) => c.ok)).toBe(true)
     expect(result.checks[0].detail).toContain('岗位')
+    expect(result.checks.find((c) => c.name === 'doc-providers')?.detail).toContain('未注册文档 provider')
   })
 
   it('GIVEN 已加载团队 WHEN bindRoute THEN 路由生效且配置持久化', () => {

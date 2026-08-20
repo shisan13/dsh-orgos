@@ -27,6 +27,8 @@ export interface DocumentRef {
   teamId?: string
   url?: string
   updatedAt?: string
+  /** 后端历史标识(git commit hash / 飞书 revision),用于变更审计与 CAS 冲突提示 */
+  version?: string
 }
 
 export interface DocumentContent {
@@ -35,19 +37,49 @@ export interface DocumentContent {
   meta?: Record<string, unknown>
 }
 
+/** 文档更新结果(updateDocument 的统一返回) */
+export type DocumentUpdateResult =
+  | { ok: true; ref: DocumentRef }
+  | { ok: false; code: 'STALE_DOCUMENT'; currentVersion?: string }
+
+/**
+ * TeamService 文档路由结果(team_doc_* 工具的返回形状)。
+ * items/ref/doc 一律附带 provider 标识(多 provider 场景消除歧义)。
+ */
+export type DocListResult =
+  | { ok: true; items: Array<DocumentRef & { provider: string }> }
+  | { ok: false; reason: string }
+
+export type DocGetResult =
+  | { ok: true; doc: DocumentContent & { provider: string }; ambiguous?: string[] }
+  | { ok: false; reason: string }
+
+export type DocCreateResult =
+  | { ok: true; ref: DocumentRef & { provider: string } }
+  | { ok: false; reason: string }
+
+export type DocRouteUpdateResult =
+  | { ok: true; ref: DocumentRef & { provider: string } }
+  | { ok: false; reason: string; code?: 'STALE_DOCUMENT'; currentVersion?: string }
+
+export type DocSearchResult =
+  | { ok: true; items: Array<DocumentRef & { provider: string }> }
+  | { ok: false; reason: string }
+
 /**
  * 文档 provider seam(P2 起实装:飞书云文档/多维表格、钉钉、企微、Notion/Confluence,
  * 与 IM adapter 同模式)。TeamService 持有 registry,文档工具与知识目录按 scope 路由。
  */
 export interface DocumentProvider {
-  /** provider 标识(与 channel 命名一致,如 feishu-docs / feishu-bitable) */
+  /** provider 标识(与 channel 命名一致,如 git-wiki / feishu-docs / feishu-bitable) */
   id: string
   /** 人类可读名 */
   label: string
   listDocuments(scope: { teamId?: string }, opts?: { limit?: number }): Promise<DocumentRef[]>
   getDocument(ref: DocumentRef): Promise<DocumentContent | undefined>
   createDocument(scope: { teamId?: string }, doc: { title: string; body: string }): Promise<DocumentRef>
-  updateDocument(ref: DocumentRef, patch: { title?: string; body?: string }): Promise<void>
+  /** 变更携带期望版本;不匹配 → STALE_DOCUMENT(与 TaskBoard CAS 同语义,防多人覆盖) */
+  updateDocument(ref: DocumentRef, patch: { title?: string; body?: string }, opts?: { expectedVersion?: string }): Promise<DocumentUpdateResult>
   searchDocuments(query: string, scope: { teamId?: string }): Promise<DocumentRef[]>
 }
 

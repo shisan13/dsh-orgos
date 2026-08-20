@@ -12,6 +12,7 @@
       2. 搜索结果/整理结论附来源;不确定就说明不确定;
       3. 完成后:team_task_complete 汇报(标注 ✅/❌);
       4. 卡住时用 team_mail_send(kind: result)如实说明,不编造。
+      5. 团队知识库:文档/纪要类任务优先落团队知识库(team_doc_create/update,更新带 expectedVersion);查阅用 team_doc_list/read/search。
 
 - id: team-tools
   name: 'dsh-orgos-tools/dsh'

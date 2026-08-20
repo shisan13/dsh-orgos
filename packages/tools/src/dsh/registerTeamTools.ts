@@ -215,8 +215,85 @@ export function registerTeamTools(ctx: { get(key: string): unknown }, tools: Too
   })
 
   tools.register({
+    name: 'team_doc_list',
+    description:
+      '列出团队知识库文档(跨全部或指定文档 provider;结果已按你的 visibility scope 投影)。省略 provider 时合并全部知识库,每条附 provider 标识(如 git-wiki/feishu-docs/feishu-bitable)。',
+    parameters: toJsonSchema({
+      provider: { type: 'string', description: '文档 provider id(省略 = 全部)' },
+      limit: { type: 'integer', description: '返回条数上限(默认 50)' },
+    }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { provider?: string; limit?: number }
+      return service.docList(positionOf(exec), a.provider, a.limit ?? 50)
+    },
+  })
+
+  tools.register({
+    name: 'team_doc_read',
+    description: '读取团队知识库文档正文(按 docId 跨 provider 定位;多 provider 命中同名文档时返回歧义提示,需补 provider)。',
+    parameters: toJsonSchema({
+      docId: { type: 'string', required: true, description: '文档 id(team_doc_list 结果中的 id)' },
+      provider: { type: 'string', description: '文档 provider id(多知识库同名时必填)' },
+    }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { docId: string; provider?: string }
+      return service.docGet(positionOf(exec), a.provider, a.docId)
+    },
+  })
+
+  tools.register({
+    name: 'team_doc_create',
+    description: '在指定知识库创建文档(必须显式 provider;provider 可选值见 team_doc_list 或团队知识目录说明)。',
+    parameters: toJsonSchema({
+      provider: { type: 'string', required: true, description: '目标文档 provider id' },
+      title: { type: 'string', required: true, description: '文档标题' },
+      body: { type: 'string', description: '文档正文(Markdown;默认空)' },
+    }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { provider: string; title: string; body?: string }
+      return service.docCreate(positionOf(exec), a.provider, a.title, a.body ?? '')
+    },
+  })
+
+  tools.register({
+    name: 'team_doc_update',
+    description:
+      '更新团队知识库文档(标题/正文;可携带 expectedVersion 做乐观并发控制,版本冲突返回 STALE_DOCUMENT 与当前版本,请先 team_doc_read 后合并再更新)。',
+    parameters: toJsonSchema({
+      docId: { type: 'string', required: true, description: '文档 id' },
+      provider: { type: 'string', description: '文档 provider id(多知识库同名时必填)' },
+      title: { type: 'string', description: '新标题' },
+      body: { type: 'string', description: '新正文(整篇替换)' },
+      expectedVersion: { type: 'string', description: '期望的当前版本(team_doc_read 返回的 ref.version),防多人覆盖' },
+    }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { docId: string; provider?: string; title?: string; body?: string; expectedVersion?: string }
+      return service.docUpdate(positionOf(exec), a.provider, a.docId, { title: a.title, body: a.body }, a.expectedVersion)
+    },
+  })
+
+  tools.register({
+    name: 'team_doc_search',
+    description: '在团队知识库全文搜索(跨全部或指定 provider;结果已按你的 visibility scope 投影)。',
+    parameters: toJsonSchema({
+      query: { type: 'string', required: true, description: '搜索关键词' },
+      provider: { type: 'string', description: '文档 provider id(省略 = 全部)' },
+      limit: { type: 'integer', description: '返回条数上限(默认 20)' },
+    }),
+    output: JSON_OUTPUT,
+    async execute(args, exec) {
+      const a = args as { query: string; provider?: string; limit?: number }
+      return service.docSearch(positionOf(exec), a.provider, a.query, a.limit ?? 20)
+    },
+  })
+
+  tools.register({
     name: 'team_doctor',
-    description: '团队健康诊断:配置/成员状态/委派任务板/存储四类检查,输出可执行修复建议。',
+    description: '团队健康诊断:配置/成员/委派任务板/存储/联邦/文档 provider 六类检查,输出可执行修复建议。',
     parameters: toJsonSchema({}),
     output: JSON_OUTPUT,
     async execute(_args, _exec) {

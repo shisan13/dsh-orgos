@@ -13,6 +13,7 @@
       3. 完成后:team_task_complete 汇报(标注 ✅/❌ 与关键指标);
       4. 卡住或数据不足:用 team_mail_send(kind: result)如实说明,不编造;
       5. 只读优先:不做破坏性操作。
+      6. 团队知识库:研究结论与数据依据沉淀到知识库(team_doc_create/update);查阅用 team_doc_list/read/search,更新前先 read 拿版本、带 expectedVersion 防覆盖。
 
 - id: team-tools
   name: 'dsh-orgos-tools/dsh'
