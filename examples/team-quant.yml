@@ -1,0 +1,169 @@
+# dsh-orgos 量化交易组织模板(team_setup init quant)
+# 规模:org → dept(产品运营/技术)→ team → team 三层治理,~20 岗位
+# 层级:ceo-pmo(总裁/PMO)→ product-lead / tech-director → 前端(frontend)/后端(backend)
+#       → app / web-mini、eng / data 子 team
+# 委派深度(org→dept→team→team)= 3 跳,与默认 delegationDepthMax: 3 恰好匹配。
+#
+# 使用前替换占位符:
+#   ou_your_ceo_id      → 你的飞书 open_id(总裁/PMO,human 占位示例)
+#   oc_your_group_id    → 主群 chat_id(绑定 org 根:群内 @bot 直达总裁/PMO)
+#
+# 字段语义以 packages/core/src/domain/types.ts 与 config/TeamConfig.ts 为准;
+# 逐字段手册见 examples/README.zh-CN.md。
+org: quant-alpha                  # 集团根节点 id(必填;必须是 nodes 中存在的节点)
+nodes:
+  - id: quant-alpha
+    kind: org                     # 集团层:目标/治理/项目组合/升级兜底
+    orchestratorPosition: ceo-pmo # org 层 orchestrator:CEO/PMO(接受全局升级与未绑定入口)
+    children: [dept-product, dept-tech]
+  - id: dept-product
+    kind: dept                    # 部门层:产品与运营
+    orchestratorPosition: product-lead
+    children: [team-product]
+  - id: team-product
+    kind: team                    # 团队层:产品/运营执行岗位归属单元
+    children: []
+  - id: dept-tech
+    kind: dept                    # 部门层:技术
+    orchestratorPosition: tech-director
+    children: [team-frontend, team-backend]
+  - id: team-frontend
+    kind: team                    # 大团队层:前端
+    orchestratorPosition: frontend-lead
+    children: [team-app, team-web-mini]
+  - id: team-app
+    kind: team                    # 子团队层:移动端(iOS/Android/鸿蒙)
+    orchestratorPosition: app-lead
+    children: []
+  - id: team-web-mini
+    kind: team                    # 子团队层:PC/H5 + 微信/支付宝小程序
+    orchestratorPosition: web-lead
+    children: []
+  - id: team-backend
+    kind: team                    # 大团队层:后端
+    orchestratorPosition: backend-lead
+    children: [team-eng, team-data]
+  - id: team-eng
+    kind: team                    # 子团队层:工程(Java 服务/网关/交易执行)
+    orchestratorPosition: eng-lead
+    children: []
+  - id: team-data
+    kind: team                    # 子团队层:数据/算法(数据工程/量化策略)
+    orchestratorPosition: data-lead
+    children: []
+positions:
+  # —— 治理岗位(每层 orchestrator;占位者可为 human 或 agent)——
+  - id: ceo-pmo
+    title: 总裁/PMO
+    occupant: { kind: human, im: { channel: feishu, userId: ou_your_ceo_id } } # human 示例:决策卡交互(任意层级可为人)
+  - id: product-lead
+    title: 产品运营负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: tech-director
+    title: 技术总监
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: frontend-lead
+    title: 前端负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: app-lead
+    title: App 端负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: web-lead
+    title: Web/小程序负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: backend-lead
+    title: 后端负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: eng-lead
+    title: 工程负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: data-lead
+    title: 数据/算法负责人
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  # —— 执行岗位(产品运营 team)——
+  - id: pm-1
+    title: 产品经理
+    teamId: team-product
+    capabilityProfile: [product, prd, roadmap]
+    occupant: { kind: agent, preset: orgos-analyst }
+  - id: ops-1
+    title: 运营专员
+    teamId: team-product
+    capabilityProfile: [operation, content, growth]
+    occupant: { kind: agent, preset: orgos-assistant }
+  - id: content-1
+    title: 内容运营
+    teamId: team-product
+    occupant: { kind: agent, preset: orgos-assistant }
+  # —— 执行岗位(App 子 team)——
+  - id: ios-1
+    title: iOS 工程师
+    teamId: team-app
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: android-1
+    title: Android 工程师
+    teamId: team-app
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: harmonyos-1
+    title: 鸿蒙工程师
+    teamId: team-app
+    occupant: { kind: agent, preset: orgos-coder }
+  # —— 执行岗位(Web/小程序子 team)——
+  - id: web-1
+    title: Web 前端工程师(PC/H5)
+    teamId: team-web-mini
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: miniapp-wx-1
+    title: 微信小程序工程师
+    teamId: team-web-mini
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: miniapp-alipay-1
+    title: 支付宝小程序工程师
+    teamId: team-web-mini
+    occupant: { kind: agent, preset: orgos-coder }
+  # —— 执行岗位(工程子 team)——
+  - id: java-1
+    title: Java 服务工程师
+    teamId: team-eng
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: java-2
+    title: Java 交易执行工程师
+    teamId: team-eng
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: qa-1
+    title: 测试工程师
+    teamId: team-eng
+    occupant: { kind: agent, preset: orgos-reviewer }
+  # —— 执行岗位(数据/算法子 team)——
+  - id: data-eng-1
+    title: 数据工程师
+    teamId: team-data
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: quant-researcher-1
+    title: 量化研究员
+    teamId: team-data
+    capabilityProfile: [quant, research, python]
+    occupant: { kind: agent, preset: orgos-analyst }
+  - id: strat-1
+    title: 策略工程师
+    teamId: team-data
+    occupant: { kind: agent, preset: orgos-coder }
+  - id: risk-1
+    title: 风控复核
+    teamId: team-data
+    occupant: { kind: agent, preset: orgos-reviewer }
+routes:
+  # 主群 @bot 直达总裁/PMO(未绑定群回退同样到达 org 根 orchestrator)
+  - { channel: feishu-main, peerId: oc_your_group_id, target: quant-alpha }
+acl:
+  # 跨 team 协作白名单(判定顺序 block→allowCrossTeam→同 team→deny):
+  # 产品 ↔ 技术 双向 note/result(需求澄清/交付回执);前端 ↔ 后端 双向 result(联调)。
+  allowCrossTeam:
+    - { from: team-product, to: team-frontend, scopes: [note, result] }
+    - { from: team-product, to: team-backend, scopes: [note, result] }
+    - { from: team-frontend, to: team-backend, scopes: [note, result] }
+    - { from: team-backend, to: team-frontend, scopes: [note, result] }
+  # 委派深度:org→dept→team→team = 3 跳(CEO 直派子团队岗位恰好合法;更深需经中转)
+  delegationDepthMax: 3
+  # 每成员并发委派上限(量化场景防过载:研究员同时只跑 2 个研究任务)
+  memberConcurrencyMax: 2

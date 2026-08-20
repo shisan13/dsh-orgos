@@ -327,8 +327,8 @@ describe('Given team_status(FR-C3;visibility 投影)', () => {
 })
 
 describe('Given team_setup(FR-X2/X5/X7;T5)', () => {
-  it('When init 三规模 Then 模板生成且通过自身校验', () => {
-    for (const scale of ['small', 'dept', 'group'] as const) {
+  it('When init 各规模(含 quant)Then 模板生成且通过自身校验', () => {
+    for (const scale of ['small', 'dept', 'group', 'quant'] as const) {
       const out = setupInit({ scale })
       expect(out.ok).toBe(true)
       expect((out.data as { yaml: string }).yaml).toContain('org:')
@@ -389,6 +389,7 @@ describe('Given 模板一致性(文档驱动:examples/ 与 templates.ts 同源)'
     ['team-small.yml', 'small'],
     ['team-dept.yml', 'dept'],
     ['team-group.yml', 'group'],
+    ['team-quant.yml', 'quant'],
   ] as const
 
   it('Then examples/*.yml 与 TEMPLATES 内容一致(防漂移)', () => {

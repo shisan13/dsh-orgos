@@ -9,6 +9,7 @@
 | [`team-small.yml`](team-small.yml) | 小组:org → team → positions(1 orchestrator + 2 执行岗位,人机混合) |
 | [`team-dept.yml`](team-dept.yml) | 部门:org → dept → team ×2(每 team 一个 orchestrator + 跨 team ACL) |
 | [`team-group.yml`](team-group.yml) | 多 BG 集团:org → bg → dept → team 三级分层,BG 间默认隔离 |
+| [`team-quant.yml`](team-quant.yml) | **量化交易大型项目**:产品运营 + 技术(前端 app/web-小程序、后端工程/数据算法)+ PMO,约 25 岗位,三层治理,`init quant` 一键组建(见 [量化团队组建指南](../docs/quant-trading-guide.md)) |
 | [`team-hybrid.example.md`](team-hybrid.example.md) | **多 bot 同群 + 人机混合** 进阶配置说明 |
 
 使用方式:`team_setup init`(scale: small/dept/group)以权威模板初始化;进阶可直接把样例复制到 `${DSH_HOME}/team-state/team/team.yml`(替换占位符后重启生效)。
