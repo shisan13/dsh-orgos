@@ -22,6 +22,7 @@ const REQUEST_HEADERS_TIMEOUT_MS = 60_000
 const REQUEST_CONNECT_TIMEOUT_MS = 60_000
 
 type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<Response>
+const fetchImplGlobal: FetchLike = undiciFetch as unknown as FetchLike
 
 /** undici fetch 的 init 超时选项(undici 扩展,不在 DOM RequestInit 类型内) */
 interface UndiciInit extends RequestInit {
@@ -33,6 +34,8 @@ interface UndiciInit extends RequestInit {
 export interface TelegramDshConfig {
   /** 代理 URL,http:// 或 socks5:// 前缀;不配置则直连 Telegram Bot API */
   proxyUrl?: string
+  /** 可选显式 bot username(群 @ 判定);缺省时启动后自动经 getMe 获取注入 */
+  botUsername?: string
 }
 
 interface Ctx {
@@ -52,16 +55,50 @@ export function apply(ctx: Ctx, config: TelegramDshConfig = {}): void {
       const token = rawCredential.trim()
       if (!token) throw new Error('telegram 凭据应为 bot token')
       const credentials: TelegramCredentials = { token }
-      return new TelegramAdapter({
+      const adapter = new TelegramAdapter({
         channel,
         credentials,
         transport: createTelegramTransport(token, proxyUrl),
+        botUsername: config.botUsername,
         onInbound: handlers.onInbound,
         onConnection: handlers.onConnection,
         onDebug: (message) => ctx.logger.info(`[dsh-orgos-im-telegram] ${message}`),
       })
+      // 群 @ 判定需要 bot username:显式配置优先;缺省自动 getMe 注入(失败不阻塞,DM 不受影响)
+      if (config.botUsername === undefined) {
+        void fetchBotUsername(token, proxyUrl)
+          .then((username) => {
+            if (username !== undefined) {
+              adapter.setBotUsername(username)
+              ctx.logger.info(`[dsh-orgos-im-telegram] bot username 已注入:${username}`)
+            }
+          })
+          .catch(() => { /* getMe 失败不阻塞通道 */ })
+      }
+      return adapter
     },
   })
+}
+
+/** getMe 获取 bot username(带 @ 前缀;失败返回 undefined) */
+export async function fetchBotUsername(token: string, proxyUrl?: string): Promise<string | undefined> {
+  const dispatcher = proxyUrl ? createProxyDispatcher(proxyUrl) : undefined
+  const request = (url: string, init?: UndiciInit): Promise<Response> =>
+    fetchImplGlobal(url, {
+      ...init,
+      ...(dispatcher !== undefined ? { dispatcher } : {}),
+      headersTimeout: REQUEST_HEADERS_TIMEOUT_MS,
+      connect: { timeout: REQUEST_CONNECT_TIMEOUT_MS },
+    })
+  try {
+    const res = await request(`https://api.telegram.org/bot${token}/getMe`)
+    const data = (await res.json()) as { ok: boolean; result?: { username?: string } }
+    if (!data.ok) return undefined
+    const username = data.result?.username
+    return username !== undefined ? `@${username}` : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** 代理 dispatcher:undici ProxyAgent(http/https 与 socks5 原生支持)。

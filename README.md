@@ -12,11 +12,12 @@ dsh-orgos lets you build and run an **organized team** on top of DeepSeek Harnes
 |------|------|
 | **IM routing** | Feishu (verified end-to-end) / Telegram / WeCom / DingTalk / Slack / Discord / WhatsApp; groups or DMs bound to positions; in a multi-bot group, @-mention picks who responds |
 | **Persistent teams** | Declarative org tree (org→bg→dept→team→positions); each position gets a role preset (persona/tools/model); member sessions persist and recover across restarts |
-| **Never-DIY dispatch** | The dispatch center coordinates but never executes: structured delegation, failure-diagnosis reassignment (≤3 attempts), heartbeat follow-up, receipt digests |
+| **Never-DIY dispatch** | The dispatch center coordinates but never executes: structured delegation, failure-diagnosis reassignment (≤3 attempts), heartbeat follow-up, receipt digests. Task board uses CAS (expectedRevision) so stale agent state cannot overwrite newer state |
 | **Human-machine hybrid** | Positions are stable entities, occupants are swappable: the same position can be an agent or a human (IM identity); replacement is evolution, with knowledge handover |
 | **Organizational information flows** | Six flows — delegation / receipt / collaboration / announcement / memory / heartbeat; five-dimension scope (visibility / authority / tool / memory / subscription) enforced server-side; three-tier memory (private / team / org) |
 | **IM approval** | Sensitive member actions raise an IM approval card (allow / deny); fail-closed on timeout |
 | **Observability** | `team_status` / `team_doctor` / `team_run` tools, the `/run` command, HTTP snapshot, run records |
+| **Official-capability delegation (FR-D6)** | Members delegate internally with official DSH subagent (spawn/fork) and workflow tools; Codex / Claude Code as member engines via optional Profile Bundles (disabled row templates in presets) — see [ADR-006](doc/tech/decisions/ADR-006-官方融合互补策略.md) |
 
 ## Architecture: where the capabilities come from, and where they go
 
@@ -221,7 +222,7 @@ examples/          # Team config samples (squad/department/conglomerate/multi-bo
 | Stage | Status |
 |------|------|
 | M1 Core + Feishu + end-to-end run | ✅ Done |
-| M2 All IMs + approval + run data + three-tier memory + knowledge handover + extension API | 🔨 In progress (code & tests complete; remaining: real-credential integration for each IM — telegram/whatsapp/slack/discord/dingtalk/wecom) |
+| M2 All IMs + approval + run data + three-tier memory + knowledge handover + extension API | 🔨 In progress (feishu & telegram live with real credentials; official-subagent/workflow delegation tools added to presets; TaskBoard CAS; remaining: real-credential runs for whatsapp/slack/discord/dingtalk/wecom) |
 | M3 SQLite + document providers + release | 🔲 Planned |
 | M4 Conglomerate federation + multi-tenancy + audit | 🔲 Reserved (interfaces defined) |
 

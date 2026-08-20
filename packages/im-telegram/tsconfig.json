@@ -3,7 +3,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "dsh-orgos-im-gateway": ["../im-gateway/src/index.ts"]
+      "dsh-orgos-im-gateway": ["../im-gateway/src/index.ts"],
+      "dsh-orgos-im-telegram": ["./src/index.ts"]
     },
     "types": ["node"]
   },

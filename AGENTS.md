@@ -11,7 +11,7 @@
 | `packages/im-*` | IM 适配器:纯协议层(规范化/退避/去重/卡片)+ `dsh/` 绑定层(注册 factory 到 MessageGateway);凭据值由各绑定层自解析(JSON/冒号/裸 token) |
 | `packages/tools` | 团队工具(team_delegate/status/mail/task/setup/doctor/run);参数 schema 必须为已编译 JSON Schema object(type/properties/required),禁 undefined 键 |
 | `packages/bundle` | 唯一声明 `dsh.bundle` 的组合包;新适配器行 disabled 模板,用户 profile 层启用 |
-| `presets/` | 角色预设模板(播种源,只写用户 root,绝不覆盖已有) |
+| `presets/` | 角色预设模板(播种源,只写用户 root,绝不覆盖已有);含官方派生 delegation isolate group(subagent spawn/fork + workflow;codex/claude-code disabled 模板) |
 
 ## 质量闸门(不过不打回)
 
@@ -26,6 +26,10 @@
 - 只改 DSH 用户 root(`~/.dsh/.agent-presets/`、`~/.dsh/skills/`)与本项目目录;绝不改 DSH shipped 预设与其他 harness 目录;
 - 危险命令(rm -rf /、chmod 777 / 等)直接拒绝;
 - 写用户已有配置文件前必须检查存在性,存在则合并/追加,绝不覆盖。
+
+## 官方融合互补策略(ADR-006)
+
+官方有且完善 → 直接用(执行引擎/审批/存储/UI);官方有接口不完善 → 我们做 Provider/Consumer 提升;官方缺失 → 做深差异化。详见 `doc/tech/dsh-orgos-官方融合互补整合方案.md` 与 `doc/tech/decisions/ADR-006-官方融合互补策略.md`。不得依赖官方 experimental 包(转正会原子重命名)。
 
 ## 测试装配
 

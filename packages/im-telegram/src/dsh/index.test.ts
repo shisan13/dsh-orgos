@@ -197,3 +197,41 @@ describe('Given createTelegramTransport 出站请求形状', () => {
     await expect(transport.getUpdates({ offset: 0, timeout: 30 })).resolves.toEqual({ updates: [] })
   })
 })
+
+describe('Given fetchBotUsername(getMe 注入)', () => {
+  it('When getMe ok Then 返回带 @ 前缀的 username', async () => {
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: { username: 'emosignal_personal_bot' } })))
+    const { fetchBotUsername } = await import('./index.ts')
+    expect(await fetchBotUsername(TOKEN)).toBe('@emosignal_personal_bot')
+  })
+
+  it('When getMe ok=false / 网络异常 / 无 username Then 返回 undefined(不阻塞)', async () => {
+    const { fetchBotUsername } = await import('./index.ts')
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: false })))
+    expect(await fetchBotUsername(TOKEN)).toBeUndefined()
+    fakeFetchImpl = vi.fn(async () => { throw new Error('network down') })
+    expect(await fetchBotUsername(TOKEN)).toBeUndefined()
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} })))
+    expect(await fetchBotUsername(TOKEN)).toBeUndefined()
+  })
+
+  it('When 配置 proxyUrl Then getMe 经 dispatcher 发送', async () => {
+    const { calls } = installFakeFetch()
+    const { fetchBotUsername } = await import('./index.ts')
+    fakeFetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+      calls.push({ input, init })
+      return new Response(JSON.stringify({ ok: true, result: { username: 'x' } }))
+    })
+    expect(await fetchBotUsername(TOKEN, 'http://127.0.0.1:7890')).toBe('@x')
+    expect(calls[0]!.init?.dispatcher).toBeDefined()
+  })
+
+  it('When apply build 未显式配置 botUsername Then 自动 getMe 注入(不阻塞 build)', async () => {
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: { username: 'auto_bot' } })))
+    const factory = captureFactory()
+    const adapter = factory.build('telegram', TOKEN, handlers) as unknown as { setBotUsername(n: string): void }
+    expect(adapter.setBotUsername).toBeTypeOf('function')
+    // build 同步返回;getMe 异步注入,等事件循环后验证 adapter 可接受注入(无异常)
+    await flush()
+  })
+})

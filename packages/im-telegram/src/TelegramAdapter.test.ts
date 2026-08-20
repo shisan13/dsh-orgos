@@ -273,6 +273,29 @@ describe('Given TelegramAdapter 长轮询生命周期', () => {
     await adapter.stop()
   })
 
+  it('When setBotUsername 运行时注入 Then 群 @ 判定在无构造配置时同样生效', async () => {
+    const t = fakeTransport()
+    const inbound: string[] = []
+    const adapter = new TelegramAdapter({
+      credentials: { token: 't' },
+      transport: t.transport,
+      onInbound: (msg) => {
+        inbound.push(msg.kind)
+      },
+    })
+    await adapter.start()
+    // 未注入前:群 @ 消息判为 text
+    t.pushUpdates([groupMentionUpdate])
+    await flush()
+    expect(inbound.at(-1)).toBe('text')
+    // 注入后:同一消息判为 mention(幂等集已含旧 key,用另一条消息验证)
+    adapter.setBotUsername(BOT_USERNAME)
+    t.pushUpdates([groupMentionUpdate, { update_id: 108, message: { message_id: 8, from: { id: 111 }, chat: { id: -100123, type: 'group' }, date: 1720000008, text: '@my_orgos_bot 再发一次', entities: [{ type: 'mention', offset: 0, length: 13 }] } }])
+    await flush()
+    expect(inbound.at(-1)).toBe('mention')
+    await adapter.stop()
+  })
+
   it('Then start/stop 幂等;重复 start 不启动第二个轮询循环', async () => {
     const t = fakeTransport()
     const adapter = new TelegramAdapter({ credentials: { token: 't' }, transport: t.transport })

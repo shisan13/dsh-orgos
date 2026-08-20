@@ -48,6 +48,8 @@ export class TelegramAdapter implements ImAdapter {
 
   private readonly opts: TelegramAdapterOptions
   private readonly seen = new IdempotencySet()
+  /** 运行时注入的 bot username(getMe 结果;优先于 opts.botUsername,用于群 @ 判定) */
+  private botUsernameValue: string | undefined
   private started = false
   private stopping = false
   private offset = 0
@@ -95,6 +97,12 @@ export class TelegramAdapter implements ImAdapter {
 
   isStarted(): boolean {
     return this.started
+  }
+
+  /** 运行时设置 bot username(绑定层 getMe 后注入;群 @ 判定必需,DM 不受影响) */
+  setBotUsername(username: string): void {
+    if (username.trim().length === 0) return
+    this.botUsernameValue = username
   }
 
   reconnectAttempts(): number {
@@ -156,7 +164,7 @@ export class TelegramAdapter implements ImAdapter {
 
   /** 入站:规范化 → 覆盖通道名 → 去重 → 回调(异常隔离) */
   private handleEvent(update: unknown): void {
-    const result = telegramUpdateToMessage(update, this.opts.botUsername)
+    const result = telegramUpdateToMessage(update, this.botUsernameValue ?? this.opts.botUsername)
     if (!result.ok) return
     const msg = { ...result.msg, channel: this.channel }
     const key = dedupKey(msg)
