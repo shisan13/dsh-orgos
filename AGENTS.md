@@ -29,7 +29,7 @@
 
 ## 官方融合互补策略(ADR-006)
 
-官方有且完善 → 直接用(执行引擎/审批/存储/UI);官方有接口不完善 → 我们做 Provider/Consumer 提升;官方缺失 → 做深差异化。详见 `doc/tech/dsh-orgos-官方融合互补整合方案.md` 与 `doc/tech/decisions/ADR-006-官方融合互补策略.md`。不得依赖官方 experimental 包(转正会原子重命名)。
+官方有且完善 → 直接用(执行引擎/审批/存储/UI);官方有接口不完善 → 我们做 Provider/Consumer 提升;官方缺失 → 做深差异化。详见内部文档目录(仓库外)`~/Documents/work/dsh-orgos-docs-internal/doc/tech/` 下的整合方案与 ADR-006。不得依赖官方 experimental 包(转正会原子重命名)。
 
 ## 测试装配
 

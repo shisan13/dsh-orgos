@@ -1,25 +1,41 @@
 # dsh-orgos 小组模板(team_setup init small)
 # 规模:org → team → positions;1 个 orchestrator + 2 个执行岗位(1 人类 + 1 agent)
-org: my-team
+#
+# 使用前替换占位符:
+#   ou_your_feishu_id → 你的飞书 open_id(人类成员)
+#   oc_your_group_id  → 你的飞书群 chat_id(群路由)
+#
+# 字段语义以 packages/core/src/domain/types.ts 与 config/TeamConfig.ts 为准。
+org: my-team                      # 集团根节点 id(必填;必须存在于 nodes,是整棵树的根)
 nodes:
-  - id: my-team
-    kind: org
-    orchestratorPosition: lead
-    children: []
+  - id: my-team                   # 治理节点 id(必填;全配置唯一,不能有重复)
+    kind: org                     # 节点类型(必填):org / bg / dept / team
+    orchestratorPosition: lead    # 本层 orchestrator 岗位 id(可选;有此字段的层才接受委派,无则路由沿父链上抛)
+    children: []                  # 子节点 id 列表(治理节点;执行岗位经 positions[].teamId 归属,不写在 children)
 positions:
-  - id: lead
-    title: 组长
-    occupant: { kind: agent, preset: orgos-orchestrator }
-  - id: coder-1
+  - id: lead                      # 岗位 id(必填;全配置唯一,或为治理岗位被 orchestratorPosition 引用)
+    title: 组长                   # 岗位标题(必填;团队室/任务板展示用)
+    occupant:                     # 占位者(必填):岗位的在岗者,人机同构核心(ADR-004)
+      kind: agent                 # 占位者类型(必填):agent = 角色 preset + 常驻会话;human = IM 身份绑定
+      preset: orgos-orchestrator  # agent 专用:角色 preset id(如 orgos-orchestrator / orgos-coder)
+  - id: coder-1                   # 执行岗位:用 teamId 归属到某个 team 节点
     title: 工程师
-    teamId: my-team
-    occupant: { kind: agent, preset: orgos-coder }
+    teamId: my-team               # 所属 team 节点 id(执行岗位必填;治理岗位不设,由 orchestratorPosition 反向关联)
+    occupant:
+      kind: agent
+      preset: orgos-coder
   - id: reviewer-1
     title: 评审
     teamId: my-team
-    occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
+    occupant:
+      kind: human                 # human 占位:不设 preset,绑 IM 身份(任意层级任意节点都可是人)
+      im:
+        channel: feishu           # 人类成员 IM 通道名(与 team-im-gateway 配置的通道一致)
+        userId: ou_your_feishu_id # 人类成员 IM 用户 id(占位符,替换为真实 open_id)
 routes:
-  - { channel: feishu, peerId: oc_your_group_id, target: my-team }
+  - channel: feishu               # IM 通道名(必填;对应 bundle/用户 profile 的通道配置)
+    peerId: oc_your_group_id      # 群/会话 id(必填;与 channel 组成精确匹配路由键)
+    target: my-team               # 路由目标(必填):岗位 id 或治理节点 id(节点 → 该层 orchestrator 接单)
 acl:
-  delegationDepthMax: 3
-  memberConcurrencyMax: 2
+  delegationDepthMax: 3           # 委派深度上限(默认 3,沿组织树计;T8 防委派链失控)
+  memberConcurrencyMax: 2         # 每成员并发派发上限(默认 2;T8 防并发淹没)

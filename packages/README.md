@@ -1,6 +1,6 @@
 # packages/(monorepo)
 
-monorepo 包结构规划见[技术设计 §3.1](../doc/tech/dsh-orgos-技术设计-完整版.md)。
+monorepo 包结构规划见[架构总览](../docs/architecture.zh-CN.md)与内部技术设计(仓库外 `~/Documents/work/dsh-orgos-docs-internal/doc/tech/`)。
 
 **M1 完成**(Flash 领域内核 + Pro 绑定层);**M2 Flash 完成**:6 个新 IM 适配器纯协议层落地(全仓 vitest 覆盖率 ≥80% 四维,typecheck 零错误,`pnpm -r build` 全过)。
 

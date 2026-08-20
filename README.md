@@ -17,7 +17,7 @@ dsh-orgos lets you build and run an **organized team** on top of DeepSeek Harnes
 | **Organizational information flows** | Six flows — delegation / receipt / collaboration / announcement / memory / heartbeat; five-dimension scope (visibility / authority / tool / memory / subscription) enforced server-side; three-tier memory (private / team / org) |
 | **IM approval** | Sensitive member actions raise an IM approval card (allow / deny); fail-closed on timeout |
 | **Observability** | `team_status` / `team_doctor` / `team_run` tools, the `/run` command, HTTP snapshot, run records |
-| **Official-capability delegation (FR-D6)** | Members delegate internally with official DSH subagent (spawn/fork) and workflow tools; Codex / Claude Code as member engines via optional Profile Bundles (disabled row templates in presets) — see [ADR-006](doc/tech/decisions/ADR-006-官方融合互补策略.md) |
+| **Official-capability delegation (FR-D6)** | Members delegate internally with official DSH subagent (spawn/fork) and workflow tools; Codex / Claude Code as member engines via optional Profile Bundles (disabled row templates in presets) — see [Architecture & Data Flows](docs/architecture.md) |
 
 ## Architecture: where the capabilities come from, and where they go
 
@@ -225,6 +225,15 @@ examples/          # Team config samples (squad/department/conglomerate/multi-bo
 | M2 All IMs + approval + run data + three-tier memory + knowledge handover + extension API | 🔨 In progress (feishu & telegram live with real credentials; official-subagent/workflow delegation tools added to presets; TaskBoard CAS; remaining: real-credential runs for whatsapp/slack/discord/dingtalk/wecom) |
 | M3 SQLite + document providers + release | 🔲 Planned |
 | M4 Conglomerate federation + multi-tenancy + audit | 🔲 Reserved (interfaces defined) |
+
+## Documentation
+
+| Doc | Path |
+|-----|------|
+| Architecture & data flows | [docs/architecture.md](docs/architecture.md) |
+| team.yml configuration manual (every field + three templates) | [examples/README.md](examples/README.md) |
+
+Internal design & decision documents (PRD / tech design / ADRs / security) live outside this repository.
 
 ## Contributing
 
