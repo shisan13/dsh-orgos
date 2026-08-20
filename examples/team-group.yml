@@ -1,17 +1,24 @@
 # dsh-orgos 集团模板(team_setup init group)
 # 规模:org → bg ×2 → dept → team;BG 间默认隔离(安全设计 §4.3)
-org: acme
+#
+# 使用前替换占位符:
+#   ou_your_feishu_id → 你的飞书 open_id(集团总裁)
+#   ou_ops_user_id    → 运维成员的飞书 open_id
+#   oc_your_group_id  → 你的飞书群 chat_id(群路由)
+#
+# 字段语义以 packages/core/src/domain/types.ts 与 config/TeamConfig.ts 为准。
+org: acme                         # 集团根节点 id(必填;必须是 nodes 中存在的节点)
 nodes:
-  - id: acme
-    kind: org
-    orchestratorPosition: ceo
-    children: [bg-eng, bg-ops]
+  - id: acme                      # 治理节点 id(必填;全配置唯一)
+    kind: org                     # 节点类型(必填):org / bg / dept / team
+    orchestratorPosition: ceo     # 本层 orchestrator 岗位 id(可选;org 根 = 升级兜底与配置变更)
+    children: [bg-eng, bg-ops]    # 子节点 id 列表(治理节点)
   - id: bg-eng
-    kind: bg
+    kind: bg                      # BG 层:方向/风险/跨 dept 决策;BG 间默认无协作可见性(隔离)
     orchestratorPosition: cto
     children: [dept-web]
   - id: bg-ops
-    kind: bg
+    kind: bg                      # 无 orchestrator 的 BG:委派/消息沿父链上抛(acme → ceo)
     children: [dept-ops]
   - id: dept-web
     kind: dept
@@ -24,28 +31,44 @@ nodes:
     orchestratorPosition: frontend-lead
     children: []
   - id: team-ops
-    kind: team
+    kind: team                    # 无 orchestrator 的 team:任务路由上抛父链
     children: []
 positions:
-  - id: ceo
+  - id: ceo                       # 治理岗位(集团总裁):被 acme 的 orchestratorPosition 引用
     title: 集团总裁
-    occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
+    occupant:
+      kind: human                 # human 根节点:决策经 IM 决策卡([同意][驳回][修改])回系统
+      im:
+        channel: feishu
+        userId: ou_your_feishu_id
   - id: cto
     title: CTO
-    occupant: { kind: agent, preset: orgos-orchestrator }
+    occupant:
+      kind: agent
+      preset: orgos-orchestrator
   - id: frontend-lead
     title: 前端组长
-    occupant: { kind: agent, preset: orgos-orchestrator }
+    occupant:
+      kind: agent
+      preset: orgos-orchestrator
   - id: fe-1
     title: 前端工程师
     teamId: team-front
-    occupant: { kind: agent, preset: orgos-coder }
+    occupant:
+      kind: agent
+      preset: orgos-coder
   - id: ops-1
     title: 运维
     teamId: team-ops
-    occupant: { kind: human, im: { channel: feishu, userId: ou_ops_user_id } }
+    occupant:
+      kind: human
+      im:
+        channel: feishu
+        userId: ou_ops_user_id
 routes:
-  - { channel: feishu, peerId: oc_your_group_id, target: acme }
+  - channel: feishu               # IM 通道名(必填)
+    peerId: oc_your_group_id      # 群/会话 id(必填)
+    target: acme                  # 路由目标:岗位或治理节点(群 @bot → org 根 orchestrator=ceo)
 acl:
-  delegationDepthMax: 3
-  memberConcurrencyMax: 2
+  delegationDepthMax: 3           # 委派深度上限(默认 3,沿组织树计;集团三级 = 恰好覆盖 org→bg→dept→team)
+  memberConcurrencyMax: 2         # 每成员并发派发上限(默认 2)

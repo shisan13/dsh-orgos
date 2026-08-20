@@ -1,44 +1,66 @@
 # dsh-orgos 部门模板(team_setup init dept)
 # 规模:org → dept → team ×2;每 team 一个 orchestrator,混合占位
-org: my-org
+#
+# 使用前替换占位符:
+#   ou_your_feishu_id → 你的飞书 open_id(人类组长)
+#   oc_your_group_id  → 你的飞书群 chat_id(群路由)
+#
+# 字段语义以 packages/core/src/domain/types.ts 与 config/TeamConfig.ts 为准。
+org: my-org                       # 集团根节点 id(必填;必须是 nodes 中存在的节点)
 nodes:
-  - id: my-org
-    kind: org
-    orchestratorPosition: dept-head
-    children: [dept-eng]
+  - id: my-org                    # 治理节点 id(必填;全配置唯一)
+    kind: org                     # 节点类型(必填):org / bg / dept / team
+    orchestratorPosition: dept-head  # 本层 orchestrator 岗位 id(可选;org 层 = 全局兜底,接受未绑定群/私聊的升级)
+    children: [dept-eng]          # 子节点 id 列表(治理节点)
   - id: dept-eng
-    kind: dept
+    kind: dept                    # 部门层:跨 team 协调与规范,可无自己的 orchestrator(无则委派上抛)
     children: [team-front, team-backend]
   - id: team-front
-    kind: team
-    orchestratorPosition: frontend-lead
+    kind: team                    # 团队层:执行岗位归属的最小治理单元
+    orchestratorPosition: frontend-lead  # team 层 orchestrator:本 team 委派/调度/质量
     children: []
   - id: team-backend
     kind: team
     orchestratorPosition: backend-lead
     children: []
 positions:
-  - id: dept-head
+  - id: dept-head                 # 治理岗位:被 my-org 的 orchestratorPosition 引用
     title: 部门主管
-    occupant: { kind: agent, preset: orgos-orchestrator }
+    occupant:
+      kind: agent
+      preset: orgos-orchestrator  # 治理角色:绝不 DIY + team_delegate 等调度工具
   - id: frontend-lead
     title: 前端组长
-    occupant: { kind: agent, preset: orgos-orchestrator }
+    occupant:
+      kind: agent
+      preset: orgos-orchestrator
   - id: backend-lead
     title: 后端组长
-    occupant: { kind: human, im: { channel: feishu, userId: ou_your_feishu_id } }
-  - id: fe-1
+    occupant:
+      kind: human                 # human orchestrator:任意层级都可为人(FR-H6 决策卡交互)
+      im:
+        channel: feishu
+        userId: ou_your_feishu_id
+  - id: fe-1                      # 执行岗位:teamId 归属 team-front
     title: 前端工程师
     teamId: team-front
-    occupant: { kind: agent, preset: orgos-coder }
+    occupant:
+      kind: agent
+      preset: orgos-coder
   - id: be-1
     title: 后端工程师
     teamId: team-backend
-    occupant: { kind: agent, preset: orgos-coder }
+    occupant:
+      kind: agent
+      preset: orgos-coder
 routes:
-  - { channel: feishu, peerId: oc_your_group_id, target: my-org }
+  - channel: feishu               # IM 通道名(必填)
+    peerId: oc_your_group_id      # 群/会话 id(必填)
+    target: my-org                # 路由目标:岗位或治理节点(此处群 @bot → org 根 orchestrator=dept-head)
 acl:
-  allowCrossTeam:
-    - { from: team-front, to: team-backend, scopes: [note, result] }
-  delegationDepthMax: 3
-  memberConcurrencyMax: 2
+  allowCrossTeam:                 # 跨 team 协作白名单(可选;判定顺序 block → allowCrossTeam → 同 team → deny)
+    - from: team-front            # 发起方 team 节点 id(必填)
+      to: team-backend            # 目标 team 节点 id(必填)
+      scopes: [note, result]      # 允许的协作类型(必填):task / note / result / escalation;不含 task 即不能跨 team 派活
+  delegationDepthMax: 3           # 委派深度上限(默认 3,沿组织树计)
+  memberConcurrencyMax: 2         # 每成员并发派发上限(默认 2)
