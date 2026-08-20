@@ -134,11 +134,12 @@ describe('Given createTelegramTransport 代理注入', () => {
     expect(calls[0]!.init?.dispatcher).toBeInstanceOf(ProxyAgent)
   })
 
-  it('When 请求发出 Then 统一携带放宽的 headersTimeout(慢代理建连)', async () => {
+  it('When 请求发出 Then 统一携带放宽的建连超时(慢代理 CONNECT >10s)', async () => {
     const { calls } = installFakeFetch()
     const transport = createTelegramTransport(TOKEN, 'http://127.0.0.1:7890')
     await transport.getUpdates({ offset: 0, timeout: 30 })
     expect(calls[0]!.init?.headersTimeout).toBe(60_000)
+    expect((calls[0]!.init as { connect?: { timeout: number } }).connect?.timeout).toBe(60_000)
   })
 })
 

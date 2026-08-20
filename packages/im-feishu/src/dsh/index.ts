@@ -31,6 +31,7 @@ export function apply(ctx: Ctx): void {
   const gateway = ctx.teamImGateway
 
   gateway.registerAdapter({
+    provider: 'feishu',
     build(channel: string, rawCredential: string, handlers: {
       onInbound(msg: unknown): void
       onConnection(state: 'connected' | 'disconnected', reason?: string): void

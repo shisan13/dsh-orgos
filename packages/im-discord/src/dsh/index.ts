@@ -16,6 +16,7 @@ interface Ctx {
 
 export function apply(ctx: Ctx): void {
   ctx.teamImGateway.registerAdapter({
+    provider: 'discord',
     build(channel: string, rawCredential: string, handlers: {
       onInbound(msg: unknown): void
       onConnection(state: 'connected' | 'disconnected', reason?: string): void

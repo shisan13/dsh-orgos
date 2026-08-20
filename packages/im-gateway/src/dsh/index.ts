@@ -15,8 +15,11 @@ export const name = 'dsh-orgos-im-gateway'
 export const inject = ['credentials']
 
 export interface ImGatewayConfig {
-  /** 通道配置:通道名(即路由 channel)→ { credentialId } */
-  channels?: Record<string, { credentialId: string }>
+  /** 通道配置:通道名(即路由 channel)→ { credentialId, provider? }。
+   *  provider 标识该通道属于哪个 IM(feishu/telegram/...);
+   *  声明了 provider 的 adapter factory 只为同 provider 的通道 build,
+   *  避免多 IM 包互相用对方的凭据构建适配器(实测曾致 telegram 404 交叉污染)。 */
+  channels?: Record<string, { credentialId: string; provider?: string }>
 }
 
 interface Ctx {
@@ -41,6 +44,8 @@ interface AdapterLike {
 }
 
 interface AdapterFactory {
+  /** 该 factory 服务的 IM 标识(与 channels[channel].provider 匹配;缺省 = 服务所有通道,兼容旧配置) */
+  provider?: string
   /** 为一个通道实例构建适配器(channel 即 config.channels 的 key) */
   build(channel: string, rawCredential: string, handlers: {
     onInbound(msg: unknown): void
@@ -74,6 +79,8 @@ export function apply(ctx: Ctx, config: ImGatewayConfig): void {
     registerAdapter(factory) {
       factories.push(factory)
       for (const [channel, channelCfg] of Object.entries(config.channels ?? {})) {
+        // provider 匹配:声明了 provider 的 factory 只为同 provider 通道构建
+        if (factory.provider !== undefined && channelCfg.provider !== factory.provider) continue
         void startChannel(factory, channel, channelCfg.credentialId)
       }
     },

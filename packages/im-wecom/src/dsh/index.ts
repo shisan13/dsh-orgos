@@ -19,6 +19,7 @@ interface Ctx {
 
 export function apply(ctx: Ctx): void {
   ctx.teamImGateway.registerAdapter({
+    provider: 'wecom',
     build(channel: string, rawCredential: string, handlers: {
       onInbound(msg: unknown): void
       onConnection(state: 'connected' | 'disconnected', reason?: string): void

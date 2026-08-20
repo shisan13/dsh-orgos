@@ -15,16 +15,18 @@ export const inject = ['teamImGateway']
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import { TelegramAdapter, type TelegramCredentials, type TelegramTransport } from 'dsh-orgos-im-telegram'
 
-/** 请求头超时(含代理建连):慢速代理节点(V2Ray 等)建连可能 >10s,
- *  Node 全局 fetch 与 npm ProxyAgent 组合时连接超时固定 10s 且无法放宽,
- *  故 transport 统一用 undici 自带 fetch + 放宽 headersTimeout(实测通过)。 */
+/** 请求头超时与建连超时(含代理 CONNECT):undici 的 CONNECT 超时固定 10s 且
+ *  只接受 fetch init 的 connect.timeout(headersTimeout 不控制它,实测验证);
+ *  慢速代理节点(V2Ray 等)建连可能 >10s,统一放宽到 60s。 */
 const REQUEST_HEADERS_TIMEOUT_MS = 60_000
+const REQUEST_CONNECT_TIMEOUT_MS = 60_000
 
 type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<Response>
 
-/** undici fetch 的 init 超时选项(headersTimeout 为 undici 扩展,不在 DOM RequestInit 类型内) */
+/** undici fetch 的 init 超时选项(undici 扩展,不在 DOM RequestInit 类型内) */
 interface UndiciInit extends RequestInit {
   headersTimeout?: number
+  connect?: { timeout: number }
 }
 
 /** dsh 行配置:proxyUrl 为可选代理(不落盘、不进日志) */
@@ -42,6 +44,7 @@ interface Ctx {
 export function apply(ctx: Ctx, config: TelegramDshConfig = {}): void {
   const { proxyUrl } = config
   ctx.teamImGateway.registerAdapter({
+    provider: 'telegram',
     build(channel: string, rawCredential: string, handlers: {
       onInbound(msg: unknown): void
       onConnection(state: 'connected' | 'disconnected', reason?: string): void
@@ -83,6 +86,7 @@ export function createTelegramTransport(
       ...init,
       ...(dispatcher !== undefined ? { dispatcher } : {}),
       headersTimeout: REQUEST_HEADERS_TIMEOUT_MS,
+      connect: { timeout: REQUEST_CONNECT_TIMEOUT_MS },
     })
   return {
     async getUpdates(params) {
