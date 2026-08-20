@@ -12,8 +12,20 @@ export const name = 'dsh-orgos-im-telegram'
 // 硬依赖:网关服务由 team-im-gateway 行提供(官方模式)
 export const inject = ['teamImGateway']
 
-import { ProxyAgent } from 'undici'
+import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import { TelegramAdapter, type TelegramCredentials, type TelegramTransport } from 'dsh-orgos-im-telegram'
+
+/** 请求头超时(含代理建连):慢速代理节点(V2Ray 等)建连可能 >10s,
+ *  Node 全局 fetch 与 npm ProxyAgent 组合时连接超时固定 10s 且无法放宽,
+ *  故 transport 统一用 undici 自带 fetch + 放宽 headersTimeout(实测通过)。 */
+const REQUEST_HEADERS_TIMEOUT_MS = 60_000
+
+type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<Response>
+
+/** undici fetch 的 init 超时选项(headersTimeout 为 undici 扩展,不在 DOM RequestInit 类型内) */
+interface UndiciInit extends RequestInit {
+  headersTimeout?: number
+}
 
 /** dsh 行配置:proxyUrl 为可选代理(不落盘、不进日志) */
 export interface TelegramDshConfig {
@@ -56,21 +68,32 @@ function createProxyDispatcher(proxyUrl: string): RequestInit['dispatcher'] {
   return new ProxyAgent(proxyUrl) as unknown as RequestInit['dispatcher']
 }
 
-/** 生产 transport:官方 Bot API(HTTP + 长轮询),失败由 adapter 退避重连 */
-export function createTelegramTransport(token: string, proxyUrl?: string): TelegramTransport {
+/** 生产 transport:官方 Bot API(HTTP + 长轮询),失败由 adapter 退避重连。
+ *  fetchImpl 默认 undici 自带 fetch(放宽建连超时,兼容慢代理);测试注入 fake。 */
+export function createTelegramTransport(
+  token: string,
+  proxyUrl?: string,
+  fetchImpl: FetchLike = undiciFetch as unknown as FetchLike,
+): TelegramTransport {
   const api = `https://api.telegram.org/bot${token}`
-  // 未配置 proxyUrl 时 dispatcher 为 undefined,请求与旧版完全一致(零代理直连)。
+  // 未配置 proxyUrl 时 dispatcher 为 undefined(零代理直连,仅多放宽超时,行为语义不变)。
   const dispatcher = proxyUrl ? createProxyDispatcher(proxyUrl) : undefined
+  const request = (url: string, init?: UndiciInit): Promise<Response> =>
+    fetchImpl(url, {
+      ...init,
+      ...(dispatcher !== undefined ? { dispatcher } : {}),
+      headersTimeout: REQUEST_HEADERS_TIMEOUT_MS,
+    })
   return {
     async getUpdates(params) {
       const url = `${api}/getUpdates?offset=${params.offset}&timeout=${params.timeout}`
-      const res = dispatcher ? await fetch(url, { dispatcher }) : await fetch(url)
+      const res = await request(url)
       const data = (await res.json()) as { ok: boolean; result?: unknown[]; description?: string }
       if (!data.ok) throw new Error(`telegram getUpdates: ${data.description ?? res.status}`)
       return { updates: data.result ?? [] }
     },
     async sendMessage(chatId, payload) {
-      const res = await fetch(`${api}/sendMessage`, {
+      const res = await request(`${api}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -78,17 +101,15 @@ export function createTelegramTransport(token: string, proxyUrl?: string): Teleg
           text: payload.text,
           ...(payload.replyMarkup !== undefined ? { reply_markup: payload.replyMarkup } : {}),
         }),
-        ...(dispatcher ? { dispatcher } : {}),
       })
       const data = (await res.json()) as { ok: boolean; description?: string }
       if (!data.ok) throw new Error(`telegram sendMessage: ${data.description ?? res.status}`)
     },
     async answerCallbackQuery(callbackQueryId) {
-      await fetch(`${api}/answerCallbackQuery`, {
+      await request(`${api}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callback_query_id: callbackQueryId }),
-        ...(dispatcher ? { dispatcher } : {}),
       })
     },
   }

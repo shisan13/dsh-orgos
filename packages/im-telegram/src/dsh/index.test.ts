@@ -1,14 +1,29 @@
 /**
- * im-telegram dsh 绑定层测试:apply 装配 + createTelegramTransport(fake 全局 fetch 捕获)
+ * im-telegram dsh 绑定层测试:apply 装配 + createTelegramTransport(fake fetch 捕获)
  *
  * 覆盖:build 后长轮询 URL 形状(token/offset/timeout)、代理 dispatcher 注入与零代理、
  * 凭据校验、出站请求形状(getUpdates/sendMessage/answerCallbackQuery)。
+ *
+ * fetch 注入:transport 默认用 undici 自带 fetch(慢代理建连放宽超时);
+ * 测试经 vi.mock('undici') 把 fetch 替换为 fake(其余导出保持真实)。
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProxyAgent } from 'undici'
 import { apply, createTelegramTransport } from './index.ts'
 
-/** fake 全局 fetch:记录 (input, init),固定返回 Telegram ok 响应;hangAfter 指定前 N 次后挂起(防长轮询空转) */
+/** 模块级 fake fetch 槽:vi.mock factory 在运行时读取它(支持逐测试替换) */
+let fakeFetchImpl: (input: string, init?: RequestInit) => Promise<Response>
+
+vi.mock('undici', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('undici')>()
+  return {
+    ...actual,
+    fetch: (input: string | URL | Request, init?: RequestInit): Promise<Response> =>
+      fakeFetchImpl(String(input), init),
+  }
+})
+
+/** fake fetch:记录 (input, init),固定返回 Telegram ok 响应;hangAfter 指定前 N 次后挂起(防长轮询空转) */
 interface FetchCall {
   input: string
   init?: RequestInit
@@ -17,18 +32,23 @@ interface FetchCall {
 function installFakeFetch(opts?: { hangAfter?: number }): { calls: FetchCall[] } {
   const calls: FetchCall[] = []
   let count = 0
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ input: String(input), init })
+  fakeFetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+    calls.push({ input, init })
     count += 1
     if (opts?.hangAfter !== undefined && count > opts.hangAfter) {
       return new Promise<Response>(() => {}) // 挂起:模拟长轮询阻塞,避免 pollLoop 微任务饿死事件循环
     }
     return new Response(JSON.stringify({ ok: true, result: [] }))
-  }))
+  })
   return { calls }
 }
 
 afterEach(() => vi.unstubAllGlobals())
+
+beforeEach(() => {
+  // 兜底:未显式 install 的用例不会真的发网络请求
+  fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: [] })))
+})
 
 /** 触发若干轮事件循环(pollLoop 的异步迭代) */
 async function flush(): Promise<void> {
@@ -113,6 +133,13 @@ describe('Given createTelegramTransport 代理注入', () => {
     await transport.getUpdates({ offset: 0, timeout: 30 })
     expect(calls[0]!.init?.dispatcher).toBeInstanceOf(ProxyAgent)
   })
+
+  it('When 请求发出 Then 统一携带放宽的 headersTimeout(慢代理建连)', async () => {
+    const { calls } = installFakeFetch()
+    const transport = createTelegramTransport(TOKEN, 'http://127.0.0.1:7890')
+    await transport.getUpdates({ offset: 0, timeout: 30 })
+    expect(calls[0]!.init?.headersTimeout).toBe(60_000)
+  })
 })
 
 describe('Given createTelegramTransport 出站请求形状', () => {
@@ -150,21 +177,21 @@ describe('Given createTelegramTransport 出站请求形状', () => {
   })
 
   it('When Bot API 返回 ok=false Then getUpdates/sendMessage 抛错', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, description: 'unauthorized' }))))
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: false, description: 'unauthorized' })))
     const transport = createTelegramTransport(TOKEN)
     await expect(transport.getUpdates({ offset: 0, timeout: 30 })).rejects.toThrow('telegram getUpdates: unauthorized')
     await expect(transport.sendMessage('111', { text: 'hi' })).rejects.toThrow('telegram sendMessage: unauthorized')
   })
 
   it('When Bot API 返回 ok=false 且无 description Then 错误含 HTTP status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false }))))
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: false })))
     const transport = createTelegramTransport(TOKEN)
     await expect(transport.getUpdates({ offset: 0, timeout: 30 })).rejects.toThrow('telegram getUpdates: 200')
     await expect(transport.sendMessage('111', { text: 'hi' })).rejects.toThrow('telegram sendMessage: 200')
   })
 
   it('When Bot API 返回 ok 但无 result Then updates 为 []', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }))))
+    fakeFetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true })))
     const transport = createTelegramTransport(TOKEN)
     await expect(transport.getUpdates({ offset: 0, timeout: 30 })).resolves.toEqual({ updates: [] })
   })
