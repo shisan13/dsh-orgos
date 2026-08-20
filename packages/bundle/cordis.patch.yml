@@ -31,6 +31,12 @@
     - id: team-im-telegram
       name: 'dsh-orgos-im-telegram/dsh'
       disabled: true
+      # 启用模板(profile 层复制本行并去掉 disabled,按需配 config.proxyUrl):
+      #   - id: team-im-telegram
+      #     name: 'dsh-orgos-im-telegram/dsh'
+      #     config:
+      #       proxyUrl: 'http://127.0.0.1:7890'   # 可选,http:// 或 socks5:// 前缀;
+      #                                             # 国内环境经代理访问 Telegram Bot API,不配置则直连
     - id: team-im-wecom
       name: 'dsh-orgos-im-wecom/dsh'
       disabled: true

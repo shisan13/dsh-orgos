@@ -32,7 +32,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "dsh-orgos-im-gateway": "workspace:^"
+    "dsh-orgos-im-gateway": "workspace:^",
+    "undici": "^7.29.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

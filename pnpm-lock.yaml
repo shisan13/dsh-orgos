@@ -13,6 +13,9 @@ importers:
       dsh-orgos-core:
         specifier: workspace:^
         version: link:../core
+      dsh-orgos-doc-feishu:
+        specifier: workspace:^
+        version: link:../doc-feishu
       dsh-orgos-im-dingtalk:
         specifier: workspace:^
         version: link:../im-dingtalk
@@ -176,7 +179,7 @@ importers:
     dependencies:
       '@slack/socket-mode':
         specifier: ^3.0.0
-        version: 3.0.0(undici@6.28.0)
+        version: 3.0.0(undici@7.29.0)
       '@slack/web-api':
         specifier: ^8.0.0
         version: 8.0.0
@@ -202,6 +205,9 @@ importers:
       dsh-orgos-im-gateway:
         specifier: workspace:^
         version: link:../im-gateway
+      undici:
+        specifier: ^7.29.0
+        version: 7.29.0
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -1149,6 +1155,10 @@ packages:
     resolution: {integrity: sha512-LIY910g9TI13YS95lrMFrs8Rm/u/irgHeTWoKCoteeJ04CUJ92eEfj0rVn+7VKMPBpUPiUoBKfhNyLI23EE/KA==}
     engines: {node: '>=18.17'}
 
+  undici@7.29.0:
+    resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
+    engines: {node: '>=20.18.1'}
+
   vite@8.2.1:
     resolution: {integrity: sha512-EU/eS7BH3XROHh2YnBefjM6DBKA6ZeMZEYQbj7NLWg5wHYlhB8B/Mayd5XsgWq+NFYccDOTemRpdETWR6Ka/lw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1481,13 +1491,13 @@ snapshots:
     dependencies:
       '@types/node': 24.13.3
 
-  '@slack/socket-mode@3.0.0(undici@6.28.0)':
+  '@slack/socket-mode@3.0.0(undici@7.29.0)':
     dependencies:
       '@slack/logger': 5.0.0
       '@slack/web-api': 8.0.0
       '@types/node': 24.13.3
       eventemitter3: 5.0.4
-      undici: 6.28.0
+      undici: 7.29.0
 
   '@slack/types@3.0.0': {}
 
@@ -2011,6 +2021,8 @@ snapshots:
   undici-types@7.18.2: {}
 
   undici@6.28.0: {}
+
+  undici@7.29.0: {}
 
   vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0):
     dependencies:
