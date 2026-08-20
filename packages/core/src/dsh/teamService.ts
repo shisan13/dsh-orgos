@@ -107,7 +107,7 @@ export class TeamService {
       },
     }
     const onStatus = (positionId: string, status: 'offline' | 'idle' | 'busy' | 'failed'): void => {
-      options.emit?.('team/member-status', { positionId, kind: this.members.get(positionId)?.kind ?? 'agent', status, at: new Date().toISOString() })
+      this.setMemberStatus(positionId, status)
     }
     const onAssistant = (positionId: string, text: string): void => {
       this.deliverAssistantText(positionId, text)
@@ -127,7 +127,13 @@ export class TeamService {
     const sdkOptions = options.sdkMember
     this.memberRuntime = sdkOptions === undefined
       ? sessionRuntime
-      : new HybridMemberRuntime(sessionRuntime, new DshSdkMemberRuntime(sdkOptions, onStatus, onAssistant), new Set(sdkOptions.positions))
+      : new HybridMemberRuntime(
+          sessionRuntime,
+          new DshSdkMemberRuntime(sdkOptions, onStatus, onAssistant, (positionId, event, detail) => {
+            this.logRun('sdk-member', { positionId, event, detail })
+          }),
+          new Set(sdkOptions.positions),
+        )
   }
 
   /** 服务停止:回收成员后端资源(dsh-sdk 子进程/session 句柄),幂等 */

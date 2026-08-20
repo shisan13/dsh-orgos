@@ -14,8 +14,9 @@
  */
 export const name = 'dsh-orgos-core'
 
-// 硬依赖:成员运行时需要的官方服务,注入保证就绪(官方模式)
-export const inject = ['agents', 'agentPresets']
+// 硬依赖:成员运行时需要的官方服务,注入保证就绪(官方模式);
+// credentials 供 member-dsh-sdk 子进程凭据注入(注入跨 bundle 边界,ctx.get 不可见)
+export const inject = ['agents', 'agentPresets', 'credentials']
 
 export interface TeamCoreConfig {
   stateRoot: string
@@ -42,6 +43,7 @@ interface Ctx {
   logger: { info(...args: unknown[]): void; warn(...args: unknown[]): void }
   agents: unknown
   agentPresets: unknown
+  credentials: { resolve(ref: string): Promise<{ value: string } | undefined> }
 }
 
 import { join } from 'node:path'
@@ -65,11 +67,11 @@ export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
       ...(config.memberDshSdk.launch.env ?? {}),
     }
     if (launchEnv.DEEPSEEK_API_KEY === undefined) {
-      const credentials = ctx.get('credentials') as { resolve(ref: string): Promise<{ value: string } | undefined> } | undefined
-      if (credentials?.resolve !== undefined) {
-        const resolved = await credentials.resolve('DEEPSEEK_API_KEY')
-        if (resolved?.value !== undefined && resolved.value !== '') launchEnv.DEEPSEEK_API_KEY = resolved.value
-      }
+      // inject 注入的 credentials 跨 bundle 边界可见(ctx.get 在 bundle 域内不可见);
+      // 解析结果只记状态 marker,密钥零落盘/日志
+      const resolved = await ctx.credentials.resolve('DEEPSEEK_API_KEY')
+      if (resolved?.value !== undefined && resolved.value !== '') launchEnv.DEEPSEEK_API_KEY = resolved.value
+      marker(config.stateRoot, 'core', 'sdk-cred', launchEnv.DEEPSEEK_API_KEY === undefined ? 'resolve-empty' : 'ok')
     }
     config.memberDshSdk.launch.env = launchEnv
   }

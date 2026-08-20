@@ -332,6 +332,8 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
     private readonly onStatus?: (positionId: string, status: MemberRuntime['status']) => void,
     /** 成员 assistant 最终输出回送(positionId, text)—— 父侧登记回执/回送 IM */
     private readonly onAssistant?: (positionId: string, text: string) => void,
+    /** 可观测事件(诊断用):ensure/deliver/run-ok/run-error/closed */
+    private readonly onEvent?: (positionId: string, event: string, detail: string) => void,
   ) {}
 
   /** 懒加载 SDK 客户端模块(每成员进程常驻;模块只 import 一次) */
@@ -354,6 +356,7 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
     })
     const entry = { harness, sessionId: this.sessionIdFor(member.positionId), busy: false, queue: [] as string[] }
     this.members.set(member.positionId, entry)
+    this.onEvent?.(member.positionId, 'ensure', `spawn ${String(this.options.launch.command)} ${String(this.options.launch.args?.[0])}`)
     this.onStatus?.(member.positionId, 'idle')
     return this.snapshot(member.positionId, entry)
   }
@@ -367,6 +370,7 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
     const note = this.bootNotes.get(member.positionId)
     this.bootNotes.delete(member.positionId)
     entry.queue.push(note === undefined ? text : `[HANDOVER FRAMING]\n${note}\n\n${text}`)
+    this.onEvent?.(member.positionId, 'deliver', `queue=${entry.queue.length}`)
     void this.pump(member.positionId, entry)
     return true
   }
@@ -381,11 +385,13 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
         const text = entry.queue.shift() ?? ''
         const result = await entry.harness.session(entry.sessionId).run(text)
         const final = String(result.finalResponse ?? '').trim()
+        this.onEvent?.(positionId, 'run-ok', `final=${final.length}chars`)
         if (final.length > 0) this.onAssistant?.(positionId, final)
       }
       this.onStatus?.(positionId, 'idle')
     } catch (error) {
       entry.failed = String(error).slice(0, 300)
+      this.onEvent?.(positionId, 'run-error', entry.failed)
       this.onStatus?.(positionId, 'failed')
     } finally {
       entry.busy = false
