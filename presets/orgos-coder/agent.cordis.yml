@@ -26,6 +26,13 @@
 - id: team-tools
   name: 'dsh-orgos-tools/dsh'
 
+# web 服务与搜索 provider 在 host 组合(base 已挂);模型可见工具 per-session(官方同款)。
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
 
