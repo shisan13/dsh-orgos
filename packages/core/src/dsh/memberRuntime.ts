@@ -334,6 +334,8 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
     private readonly onAssistant?: (positionId: string, text: string) => void,
     /** 可观测事件(诊断用):ensure/deliver/run-ok/run-error/closed */
     private readonly onEvent?: (positionId: string, event: string, detail: string) => void,
+    /** M3.2:每成员子进程 env 覆盖(team-rpc 的 URL/岗位/token 注入点) */
+    private readonly memberEnv?: (positionId: string) => Record<string, string>,
   ) {}
 
   /** 懒加载 SDK 客户端模块(每成员进程常驻;模块只 import 一次) */
@@ -347,9 +349,14 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
     if (existing) return this.snapshot(member.positionId, existing)
     const mod = await this.sdkModule()
     if (mod.DeepSeekHarness === undefined) throw new Error(`sdkClientEntry ${this.options.sdkClientEntry} 未导出 DeepSeekHarness`)
-    // 每成员独立子进程:模型路由走 initialize,组合由子进程 cordis.yml 决定
+    // 每成员独立子进程:模型路由走 initialize,组合由子进程 cordis.yml 决定;
+    // M3.2:每成员 env 覆盖(team-rpc 凭据)合并进 launch.env(官方 env 整体替换语义)
+    const launch =
+      this.memberEnv === undefined
+        ? this.options.launch
+        : { ...this.options.launch, env: { ...(this.options.launch.env ?? {}), ...this.memberEnv(member.positionId) } }
     const harness = new mod.DeepSeekHarness({
-      launch: this.options.launch,
+      launch,
       ...(this.options.provider === undefined ? {} : { provider: this.options.provider }),
       ...(this.options.model === undefined ? {} : { model: this.options.model }),
       ...(this.options.maxTokens === undefined ? {} : { maxTokens: this.options.maxTokens }),

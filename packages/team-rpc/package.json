@@ -1,0 +1,32 @@
+{
+  "name": "dsh-orgos-team-rpc",
+  "version": "0.1.0",
+  "description": "dsh-orgos 团队工具远程化(M3.2):中央实例 RPC 服务端 + 成员子进程 RPC 客户端,TeamToolDefs 单源驱动",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./server": { "types": "./lib/server/index.d.ts", "default": "./lib/server/index.js" },
+    "./client": { "types": "./lib/client/index.d.ts", "default": "./lib/client/index.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib"],
+  "license": "MIT",
+  "author": "shisan13",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "dsh-orgos-core": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shisan13/dsh-orgos.git"
+  }
+}

@@ -23,6 +23,7 @@
     "dsh-orgos-im-telegram": "workspace:^",
     "dsh-orgos-im-wecom": "workspace:^",
     "dsh-orgos-im-whatsapp": "workspace:^",
+    "dsh-orgos-team-rpc": "workspace:^",
     "dsh-orgos-tools": "workspace:^",
     "dsh-orgos-ui": "workspace:^"
   },

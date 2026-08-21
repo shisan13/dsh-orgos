@@ -7,6 +7,7 @@
  *
  * 设计出处:技术设计 §5(TeamRegistry/MemberRuntime/DelegationEngine/Heartbeat)。
  */
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import {
   DelegationEngine,
   Mailbox,
@@ -51,6 +52,8 @@ export interface TeamServiceOptions {
   store?: TeamStore
   /** 成员后端切换(ADR-002):配置后 agent 成员走 member-dsh-sdk(P1 进程常驻),human 不受影响 */
   sdkMember?: DshSdkMemberOptions
+  /** M3.2 团队工具远程化:中央实例 RPC 入口 URL(配置后为每个 SDK/ACP 成员签发 token 并注入子进程 env) */
+  rpc?: { url: string }
 }
 
 export interface TeamSnapshot {
@@ -87,6 +90,8 @@ export class TeamService {
   private federation: OrgFederation | undefined
   /** 扩展面:团队事件订阅者(稳定 API,与 DSH 事件总线解耦) */
   private readonly teamEventListeners = new Set<(event: string, payload: Record<string, unknown>) => void>()
+  /** M3.2 RPC 认证:positionId → 每成员随机 token(子进程 env 注入,服务端恒时比较) */
+  private readonly rpcTokens = new Map<string, string>()
 
   constructor(readonly options: TeamServiceOptions) {
     // 存储 provider 注入点:默认 JSONL;SQLite/联邦后端插拔替换,数据记录格式不变
@@ -125,13 +130,22 @@ export class TeamService {
     // ADR-002 MemberBackend seam:member-dsh-sdk(P1 进程常驻)与 member-session 混合
     // (sdkMember.positions 列出走 SDK 的岗位;缺省 = 全部 agent 岗位)
     const sdkOptions = options.sdkMember
+    // M3.2:配置了 RPC 入口 → 每个 SDK 成员 spawn 时注入子进程 env(URL/岗位/随机 token)
+    const memberEnv =
+      options.rpc?.url === undefined
+        ? undefined
+        : (positionId: string): Record<string, string> => ({
+            DSH_ORGOS_RPC_URL: options.rpc?.url as string,
+            DSH_ORGOS_RPC_POSITION: positionId,
+            DSH_ORGOS_RPC_TOKEN: this.issueMemberRpc(positionId),
+          })
     this.memberRuntime = sdkOptions === undefined
       ? sessionRuntime
       : new HybridMemberRuntime(
           sessionRuntime,
           new DshSdkMemberRuntime(sdkOptions, onStatus, onAssistant, (positionId, event, detail) => {
             this.logRun('sdk-member', { positionId, event, detail })
-          }),
+          }, memberEnv),
           new Set(sdkOptions.positions),
         )
   }
@@ -756,6 +770,30 @@ export class TeamService {
     return [...this.documentProviders.values()].map((p) => ({ id: p.id, label: p.label }))
   }
 
+  // ---- M3.2 RPC 认证:成员子进程 HTTP 直连团队工具的每成员 token ----
+  /** 签发成员 RPC token(随机 32 字节,子进程 env 注入;签发即覆盖旧 token) */
+  issueMemberRpc(positionId: string): string {
+    const token = randomBytes(32).toString('hex')
+    this.rpcTokens.set(positionId, token)
+    this.logRun('rpc-issue', { positionId })
+    return token
+  }
+
+  /** 校验成员 RPC token(恒时比较,防时序侧信道) */
+  verifyMemberRpc(positionId: string, token: string): boolean {
+    const expected = this.rpcTokens.get(positionId)
+    if (expected === undefined || typeof token !== 'string') return false
+    const a = Buffer.from(expected, 'utf8')
+    const b = Buffer.from(token, 'utf8')
+    if (a.length !== b.length) return false
+    return timingSafeEqual(a, b)
+  }
+
+  /** M3.2 RPC 审计(RPC 服务端每请求落 runs 流) */
+  logRpc(positionId: string, method: string, ok: boolean): void {
+    this.logRun('rpc', { positionId, method, ok })
+  }
+
   // ---- 文档路由(team_doc_* 工具入口;B 阶段知识库能力)----
   //
   // 设计要点:
@@ -978,6 +1016,9 @@ export type TeamServiceFacade = Pick<
   | 'replaceOccupant'
   | 'registerDocumentProvider'
   | 'listDocumentProviders'
+  | 'issueMemberRpc'
+  | 'verifyMemberRpc'
+  | 'logRpc'
   | 'docList'
   | 'docGet'
   | 'docCreate'

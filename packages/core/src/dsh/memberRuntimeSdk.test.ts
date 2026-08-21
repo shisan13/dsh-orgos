@@ -163,6 +163,32 @@ describe('DshSdkMemberRuntime(member-dsh-sdk 后端)', () => {
     expect(makeRuntime().resolveApproval('ap-1', 'allow')).toBe(false)
   })
 
+  it('GIVEN memberEnv 回调 WHEN ensure THEN 每成员 env 覆盖合并进 launch.env(M3.2 RPC 注入点)', async () => {
+    const runtime = new DshSdkMemberRuntime(
+      {
+        sdkClientEntry: sdkEntry,
+        launch: { command: 'node', args: ['bin.js', 'm.yml'], env: { PATH: '/usr/bin', BASE: 'x' } },
+      },
+      undefined,
+      undefined,
+      undefined,
+      (positionId) => ({ DSH_ORGOS_RPC_URL: 'http://127.0.0.1:3081/api/orgos/rpc', DSH_ORGOS_RPC_POSITION: positionId, DSH_ORGOS_RPC_TOKEN: `tok-${positionId}` }),
+    )
+    await runtime.ensure(member('coder-1'))
+    expect(mod.instances[0]?.options).toMatchObject({
+      launch: {
+        command: 'node',
+        env: {
+          PATH: '/usr/bin',
+          BASE: 'x',
+          DSH_ORGOS_RPC_URL: 'http://127.0.0.1:3081/api/orgos/rpc',
+          DSH_ORGOS_RPC_POSITION: 'coder-1',
+          DSH_ORGOS_RPC_TOKEN: 'tok-coder-1',
+        },
+      },
+    })
+  })
+
   it('GIVEN sdkClientEntry 缺 DeepSeekHarness 导出 WHEN deliver THEN ensure 抛错', async () => {
     writeFileSync(join(dir, 'bad.mjs'), 'export const nope = 1\n')
     const runtime = new DshSdkMemberRuntime({ sdkClientEntry: pathToFileURL(join(dir, 'bad.mjs')).href, launch: { command: 'node', args: [] } })

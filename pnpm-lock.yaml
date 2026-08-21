@@ -46,6 +46,9 @@ importers:
       dsh-orgos-im-whatsapp:
         specifier: workspace:^
         version: link:../im-whatsapp
+      dsh-orgos-team-rpc:
+        specifier: workspace:^
+        version: link:../team-rpc
       dsh-orgos-tools:
         specifier: workspace:^
         version: link:../tools
@@ -290,6 +293,25 @@ importers:
       dsh-orgos-im-gateway:
         specifier: workspace:^
         version: link:../im-gateway
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: ^4.0.0
+        version: 4.1.10(vitest@4.1.10)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.10(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0))
+
+  packages/team-rpc:
+    dependencies:
+      dsh-orgos-core:
+        specifier: workspace:^
+        version: link:../core
     devDependencies:
       '@types/node':
         specifier: ^24.0.0

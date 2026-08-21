@@ -142,6 +142,27 @@ describe('registerTeamTools(全工具注册与 execute 转发)', () => {
   })
 })
 
+describe('registerTeamTools(TeamToolDefs 单源一致性)', () => {
+  it('GIVEN defs 驱动注册 WHEN 对比注册表 THEN 15 个 defs 全部在列且 parameters 逐字一致', async () => {
+    const { TEAM_TOOL_DEFS } = await import('dsh-orgos-core/dsh/teamToolDefs')
+    const tools = registerAll(makeService().service)
+    for (const def of TEAM_TOOL_DEFS) {
+      const registered = tools.defs.find((d) => d.name === def.name)
+      expect(registered, def.name).toBeDefined()
+      expect(registered?.parameters).toEqual(def.parameters)
+    }
+    expect(TEAM_TOOL_DEFS).toHaveLength(15)
+  })
+
+  it('GIVEN 远程化名单 WHEN 导出 THEN 13 个且治理类排除(与 team-rpc 白名单同源)', async () => {
+    const { REMOTE_TOOL_DEFS } = await import('dsh-orgos-core/dsh/teamToolDefs')
+    expect(REMOTE_TOOL_DEFS).toHaveLength(13)
+    expect(REMOTE_TOOL_DEFS.map((d: { name: string }) => d.name)).not.toContain('team_setup')
+    expect(REMOTE_TOOL_DEFS.map((d: { name: string }) => d.name)).not.toContain('team_delegate')
+    expect(REMOTE_TOOL_DEFS.map((d: { name: string }) => d.name)).not.toContain('team_doctor')
+  })
+})
+
 describe('registerTeamTools(文档工具)', () => {
   const calls: Array<{ method: string; args: unknown[] }> = []
   const fakeService = {

@@ -11,6 +11,7 @@
  * 本包零 DSH import(结构类型),运行时由 DSH 做 Duck-typing。
  */
 import type { TeamServiceFacade } from 'dsh-orgos-core/dsh/teamService'
+import { TEAM_TOOL_DEFS } from 'dsh-orgos-core/dsh/teamToolDefs'
 import { TEMPLATE_SMALL, TEMPLATE_DEPT, TEMPLATE_GROUP } from '../templates.js'
 
 interface ContentBlock {
@@ -104,202 +105,20 @@ export function registerTeamTools(ctx: { get(key: string): unknown }, tools: Too
     },
   })
 
-  tools.register({
-    name: 'team_status',
-    description: '查询团队状态(成员/任务/委派/邮箱),结果已按你的 visibility scope 投影过滤;成员状态为实时折叠(offline/idle/busy)。',
-    parameters: toJsonSchema({}),
-    output: JSON_OUTPUT,
-    async execute(_args, exec) {
-      return service.status(positionOf(exec))
-    },
-  })
-
-  tools.register({
-    name: 'team_mail_send',
-    description: '向团队成员发送协作消息(kind: note 备忘/result 结果/escalation 升级)。跨 team 需 ACL 显式声明,否则被拒。',
-    parameters: toJsonSchema({
-      to: { type: 'string', required: true, description: '目标岗位 id' },
-      body: { type: 'string', required: true },
-      kind: { type: 'string', description: "note | result | escalation(默认 note)" },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { to: string; body: string; kind?: string }
-      return service.mailSend(positionOf(exec), a.to, a.kind ?? 'note', a.body)
-    },
-  })
-
-  tools.register({
-    name: 'team_mail_recv',
-    description: '读取我的协作邮箱(按 visibility scope 投影)。',
-    parameters: toJsonSchema({}),
-    output: JSON_OUTPUT,
-    async execute(_args, exec) {
-      return { items: service.mailRecv(positionOf(exec)) }
-    },
-  })
-
-  tools.register({
-    name: 'team_task_create',
-    description: '在团队任务板创建任务(可指派岗位)。',
-    parameters: toJsonSchema({
-      teamId: { type: 'string', required: true },
-      title: { type: 'string', required: true },
-      assignee: { type: 'string', required: true, description: '指派岗位 id' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { teamId: string; title: string; assignee: string }
-      return service.taskCreate(a.teamId, a.title, a.assignee, positionOf(exec))
-    },
-  })
-
-  tools.register({
-    name: 'team_task_claim',
-    description: '认领任务板任务。',
-    parameters: toJsonSchema({ taskId: { type: 'string', required: true } }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      return service.taskClaim(positionOf(exec), String((args as { taskId: string }).taskId))
-    },
-  })
-
-  tools.register({
-    name: 'team_task_complete',
-    description: '完成我认领的任务(附验收证据;若任务来自委派,将同时触发回执流)。',
-    parameters: toJsonSchema({ taskId: { type: 'string', required: true } }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      return service.taskDone(positionOf(exec), String((args as { taskId: string }).taskId))
-    },
-  })
-
-  tools.register({
-    name: 'team_run',
-    description: '查询运行记录与指标(委派/完成/失败),按你的 visibility scope 投影。',
-    parameters: toJsonSchema({ limit: { type: 'integer', description: '返回条数上限(默认 50)' } }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { limit?: number }
-      return service.runReport(positionOf(exec), a.limit ?? 50)
-    },
-  })
-
-  tools.register({
-    name: 'team_memory_save',
-    description:
-      "向团队/集团记忆写入显式提炼(kind: contribution 贡献/handover 交接/decision 决策/insight 洞察)。写入受 authority scope 约束:你只能写自己 scope 内的层(成员写本 team;orchestrator 按层级提炼)。私有记忆不用本工具(那是你自己的 session 历史)。",
-    parameters: toJsonSchema({
-      level: { type: 'string', required: true, description: "team | org(team 写本团队记忆;org 需集团记忆权)" },
-      kind: { type: 'string', description: 'contribution | handover | decision | insight(默认 contribution)' },
-      content: { type: 'string', required: true, description: '记忆正文(提炼后的事实/结论,不贴原始日志)' },
-      digest: { type: 'string', description: '一句话摘要(上层阅读压缩用,可选)' },
-      teamId: { type: 'string', description: 'level=team 时可指定目标团队节点(默认你所在 team;须在你管辖子树内)' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { level: string; kind?: string; content: string; digest?: string; teamId?: string }
-      return service.memorySave(positionOf(exec), a.level as 'team' | 'org', a.kind ?? 'contribution', a.content, a.digest, a.teamId)
-    },
-  })
-
-  tools.register({
-    name: 'team_memory_recall',
-    description: '读取团队/集团记忆(结果已按你的 memory scope 强制投影:成员只见本 team;orchestrator 见管辖层)。',
-    parameters: toJsonSchema({ limit: { type: 'integer', description: '返回条数上限(默认 50)' } }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { limit?: number }
-      return service.memoryList(positionOf(exec), a.limit ?? 50)
-    },
-  })
-
-  tools.register({
-    name: 'team_doc_list',
-    description:
-      '列出团队知识库文档(跨全部或指定文档 provider;结果已按你的 visibility scope 投影)。省略 provider 时合并全部知识库,每条附 provider 标识(如 git-wiki/feishu-docs/feishu-bitable)。',
-    parameters: toJsonSchema({
-      provider: { type: 'string', description: '文档 provider id(省略 = 全部)' },
-      limit: { type: 'integer', description: '返回条数上限(默认 50)' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { provider?: string; limit?: number }
-      return service.docList(positionOf(exec), a.provider, a.limit ?? 50)
-    },
-  })
-
-  tools.register({
-    name: 'team_doc_read',
-    description: '读取团队知识库文档正文(按 docId 跨 provider 定位;多 provider 命中同名文档时返回歧义提示,需补 provider)。',
-    parameters: toJsonSchema({
-      docId: { type: 'string', required: true, description: '文档 id(team_doc_list 结果中的 id)' },
-      provider: { type: 'string', description: '文档 provider id(多知识库同名时必填)' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { docId: string; provider?: string }
-      return service.docGet(positionOf(exec), a.provider, a.docId)
-    },
-  })
-
-  tools.register({
-    name: 'team_doc_create',
-    description: '在指定知识库创建文档(必须显式 provider;provider 可选值见 team_doc_list 或团队知识目录说明)。',
-    parameters: toJsonSchema({
-      provider: { type: 'string', required: true, description: '目标文档 provider id' },
-      title: { type: 'string', required: true, description: '文档标题' },
-      body: { type: 'string', description: '文档正文(Markdown;默认空)' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { provider: string; title: string; body?: string }
-      return service.docCreate(positionOf(exec), a.provider, a.title, a.body ?? '')
-    },
-  })
-
-  tools.register({
-    name: 'team_doc_update',
-    description:
-      '更新团队知识库文档(标题/正文;可携带 expectedVersion 做乐观并发控制,版本冲突返回 STALE_DOCUMENT 与当前版本,请先 team_doc_read 后合并再更新)。',
-    parameters: toJsonSchema({
-      docId: { type: 'string', required: true, description: '文档 id' },
-      provider: { type: 'string', description: '文档 provider id(多知识库同名时必填)' },
-      title: { type: 'string', description: '新标题' },
-      body: { type: 'string', description: '新正文(整篇替换)' },
-      expectedVersion: { type: 'string', description: '期望的当前版本(team_doc_read 返回的 ref.version),防多人覆盖' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { docId: string; provider?: string; title?: string; body?: string; expectedVersion?: string }
-      return service.docUpdate(positionOf(exec), a.provider, a.docId, { title: a.title, body: a.body }, a.expectedVersion)
-    },
-  })
-
-  tools.register({
-    name: 'team_doc_search',
-    description: '在团队知识库全文搜索(跨全部或指定 provider;结果已按你的 visibility scope 投影)。',
-    parameters: toJsonSchema({
-      query: { type: 'string', required: true, description: '搜索关键词' },
-      provider: { type: 'string', description: '文档 provider id(省略 = 全部)' },
-      limit: { type: 'integer', description: '返回条数上限(默认 20)' },
-    }),
-    output: JSON_OUTPUT,
-    async execute(args, exec) {
-      const a = args as { query: string; provider?: string; limit?: number }
-      return service.docSearch(positionOf(exec), a.provider, a.query, a.limit ?? 20)
-    },
-  })
-
-  tools.register({
-    name: 'team_doctor',
-    description: '团队健康诊断:配置/成员/委派任务板/存储/联邦/文档 provider 六类检查,输出可执行修复建议。',
-    parameters: toJsonSchema({}),
-    output: JSON_OUTPUT,
-    async execute(_args, _exec) {
-      return service.doctor()
-    },
-  })
+  // M3.2:15 个常规工具由 TeamToolDefs 单源驱动(本地直连 service;
+  // 同一份 defs 驱动 team-rpc client 行,两端 schema/参数序一致性由测试保证)。
+  // team_delegate/team_setup 为治理类工具,保留手写(不远程化)。
+  for (const def of TEAM_TOOL_DEFS) {
+    tools.register({
+      name: def.name,
+      description: def.description,
+      parameters: def.parameters,
+      output: JSON_OUTPUT,
+      async execute(args, exec) {
+        return def.invoke(service, (args ?? {}) as Record<string, unknown>, positionOf(exec))
+      },
+    })
+  }
 
   tools.register({
     name: 'team_setup',

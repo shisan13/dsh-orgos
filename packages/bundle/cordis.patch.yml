@@ -83,6 +83,17 @@
       name: 'dsh-orgos-doc-feishu/dsh'
       disabled: true
 
+    # —— 团队工具远程化 RPC 服务端(M3.2;成员子进程内直用 team_* 工具)。
+    #    启用模板(host 平面,与 team-core 同 bundle;成员侧由子进程组合挂 client 行):
+    #      - id: team-rpc-server
+    #        name: 'dsh-orgos-team-rpc/server'
+    #        config:
+    #          path: '/api/orgos/rpc'   # 可选,默认 /api/orgos/rpc
+    #    配套:team-core 行 config.rpc.url = 'http://127.0.0.1:<web端口>/api/orgos/rpc'
+    - id: team-rpc-server
+      name: 'dsh-orgos-team-rpc/server'
+      disabled: true
+
     # —— team-ui Client 半(M2;团队室页签,disabled 模板,验收期启用)——
     - id: team-ui
       name: 'dsh-orgos-ui'
