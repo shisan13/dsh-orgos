@@ -247,6 +247,7 @@ examples/          # 团队配置样例(小组/部门/集团/多 bot 同群)
 | team.yml 配置手册(全字段 + 四模板) | [examples/README.zh-CN.md](examples/README.zh-CN.md) |
 | 量化交易团队组建指南 | [docs/quant-trading-guide.zh-CN.md](docs/quant-trading-guide.zh-CN.md) |
 | 部署形态与大项目研发流程(单机/多机) | [docs/deployment-and-scale.zh-CN.md](docs/deployment-and-scale.zh-CN.md) |
+| 凭据与通道配置(所有 IM/文档 provider 的密钥位置与格式) | [docs/credentials-and-channels.zh-CN.md](docs/credentials-and-channels.zh-CN.md) |
 
 内部方案与决策文档(PRD/技术设计/ADR/安全设计)存放于仓库外,不随本仓库发布。
 

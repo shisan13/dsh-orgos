@@ -244,5 +244,8 @@ A:模板中 `ou_your_feishu_id` / `ou_ops_user_id`(人类成员 open_id)与 `oc_
 **Q:团队知识库(team_doc_* 工具)怎么启用?**
 A:知识库后端是可插拔文档 provider,对应 bundle 行的 disabled 模板(profile 层复制行并去掉 disabled):本地/远程 git wiki 启用 `team-doc-git` 行(`config.repoPath` 指向已有 git 仓库);飞书云文档启用 `team-doc-feishu-docs` 行(`config.credentialRef` 用 appId:appSecret 格式);飞书多维表格启用 `team-doc-feishu` 行(另需 appToken/tableId)。三者可并存,`team_doc_*` 工具跨 provider 合并;更新带 `expectedVersion` 可防多人覆盖(CAS)。
 
+**Q:机器人/文档 provider 的凭据加到哪个文件?**
+A:密钥统一放 `~/.dsh/.credentials.yaml`(键名 = POSIX 标识符);通道登记在 profile `cordis.patch.yml` 的 `team-im-gateway` 行;路由绑定在 team.yml 的 `routes`。各平台值格式与全部 provider 配置见 [凭据与通道配置参考](../docs/credentials-and-channels.zh-CN.md)。
+
 **Q:roles 覆盖与默认的关系?**
 A:不写 roles 时按岗位层级取默认值(§6 表);写了则按 preset id 覆盖对应维度,memory/subscription 空数组视为"不覆盖,回落默认"。

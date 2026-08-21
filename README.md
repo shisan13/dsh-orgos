@@ -237,6 +237,7 @@ examples/          # Team config samples (squad/department/conglomerate/multi-bo
 | team.yml configuration manual (every field + four templates) | [examples/README.md](examples/README.md) |
 | Quant team guide | [docs/quant-trading-guide.md](docs/quant-trading-guide.md) |
 | Deployment shapes & large-project delivery flow (single/multi machine) | [docs/deployment-and-scale.md](docs/deployment-and-scale.md) |
+| Credentials & channels (where every IM/doc provider secret lives and its format) | [docs/credentials-and-channels.md](docs/credentials-and-channels.md) |
 
 Internal design & decision documents (PRD / tech design / ADRs / security) live outside this repository.
 
