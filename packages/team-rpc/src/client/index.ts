@@ -35,7 +35,8 @@ interface ToolsLike {
 
 interface Ctx {
   tools: ToolsLike
-  logger: { info(...args: unknown[]): void; warn(...args: unknown[]): void }
+  /** 子进程组合常无 logger 行(官方无人值守组合模式),全部可选 */
+  logger?: { info?(...args: unknown[]): void; warn?(...args: unknown[]): void }
 }
 
 interface ClientConfig {
@@ -59,7 +60,7 @@ const JSON_OUTPUT = {
 export function apply(ctx: Ctx, config: ClientConfig = {}): void {
   const { baseUrl, positionId, token } = config
   if (!baseUrl || !positionId || !token) {
-    ctx.logger.warn('[dsh-orgos-team-rpc/client] baseUrl/positionId/token 缺失,行停用(团队工具远程化不启用)')
+    ctx.logger?.warn?.('[dsh-orgos-team-rpc/client] baseUrl/positionId/token 缺失,行停用(团队工具远程化不启用)')
     return
   }
   const timeoutMs = Math.max(1_000, config.timeoutMs ?? 30_000)
@@ -86,5 +87,5 @@ export function apply(ctx: Ctx, config: ClientConfig = {}): void {
       },
     })
   }
-  ctx.logger.info(`[dsh-orgos-team-rpc/client] 已注册 ${REMOTE_TOOL_DEFS.length} 个远程化团队工具(→ ${baseUrl})`)
+  ctx.logger?.info?.(`[dsh-orgos-team-rpc/client] 已注册 ${REMOTE_TOOL_DEFS.length} 个远程化团队工具(→ ${baseUrl})`)
 }

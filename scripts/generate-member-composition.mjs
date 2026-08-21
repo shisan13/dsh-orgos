@@ -83,6 +83,10 @@ const composition = `# dsh-orgos 成员子进程组合(生成自 presets/${prese
     mode: workspace-write
     workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
 
+# 工具注册面(团队工具远程化 client 行需要;与官方 base 同款行)
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 

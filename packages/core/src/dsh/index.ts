@@ -25,6 +25,8 @@ export interface TeamCoreConfig {
   heartbeatIntervalMinutes?: number
   /** 存储引擎(M3.1):'jsonl'(默认,append-only 文件)| 'sqlite'(WAL 单表;迁移走 scripts/migrate-store.mjs) */
   storeEngine?: 'jsonl' | 'sqlite'
+  /** M3.2 团队工具远程化:中央实例 RPC 入口(配置后 SDK 成员 spawn 时注入 RPC env+token) */
+  rpc?: { url: string }
   /** member-dsh-sdk 后端(C 阶段):配置后 agent 成员以官方 SDK 子进程常驻运行 */
   memberDshSdk?: {
     /** 官方 SDK 客户端模块绝对路径(如 checkout 的 packages/sdk/client/lib/index.js) */
@@ -85,6 +87,7 @@ export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
     agents: agents as never,
     presets: presets as never,
     ...(config.storeEngine === 'sqlite' ? { store: createSqliteTeamStore(config.stateRoot) } : {}),
+    ...(config.rpc !== undefined ? { rpc: config.rpc } : {}),
     ...(config.memberDshSdk ? { sdkMember: config.memberDshSdk } : {}),
     defaultModel: (ctx.get('agentDefaultModel') ?? undefined) as never,
     emit: (event, payload) => {
