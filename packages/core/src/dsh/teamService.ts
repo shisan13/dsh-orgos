@@ -67,6 +67,15 @@ export interface TeamSnapshot {
   tasks: unknown[]
   mailCount: number
   memoryCount: number
+  /** 组织树(P1 团队室树视图;扁平字段保持向后兼容) */
+  tree?: OrgTreeSnapshot
+}
+
+/** 组织树快照(服务端聚合,UI 零计算) */
+export interface OrgTreeSnapshot {
+  nodes: Array<{ id: string; kind: 'org' | 'bg' | 'dept' | 'team'; parentId: string | null; title?: string; orchestratorPosition?: string }>
+  positionsByNode: Record<string, Array<{ id: string; title?: string; preset?: string; kind: 'agent' | 'human'; status: string }>>
+  aggregates: Record<string, { positionCount: number; busy: number; idle: number; offline: number; failed: number; openDelegations: number; openTasks: number }>
 }
 
 const ORGOS_SOURCE = { kind: 'plugin', plugin: 'dsh-orgos' } as const
@@ -334,6 +343,83 @@ export class TeamService {
     this.options.emit?.('team/member-status', { positionId, status, at: new Date().toISOString() })
   }
 
+  /** 组织树聚合(P1 团队室树视图):O(N) 单次后序遍历,每节点子树状态/委派/任务闭包和 */
+  snapshotTree(): OrgTreeSnapshot | undefined {
+    if (!this.org || !this.config) return undefined
+    const nodes: OrgTreeSnapshot['nodes'] = []
+    const positionsByNode: OrgTreeSnapshot['positionsByNode'] = {}
+    const byId = new Map<string, { id: string; kind: 'org' | 'bg' | 'dept' | 'team'; parentId: string | null; title?: string; orchestratorPosition?: string }>()
+    const nodeList = this.org.nodesAll()
+    // 容器节点 + parentId 索引
+    for (const n of nodeList) {
+      const entry: OrgTreeSnapshot['nodes'][number] = {
+        id: n.id,
+        kind: n.kind,
+        parentId: this.org.parentOf(n.id) ?? null,
+        title: n.title,
+        orchestratorPosition: this.org.orchestratorOf(n.id),
+      }
+      nodes.push(entry)
+      byId.set(n.id, entry)
+      positionsByNode[n.id] = []
+    }
+    // 岗位挂到所属节点(治理岗位挂其节点,执行岗位挂 team)
+    const statusOf = (positionId: string): string => this.memberStatus.get(positionId) ?? 'offline'
+    const delegations = this.delegation?.snapshot() ?? []
+    const openDelegationByPosition = new Map<string, number>()
+    for (const d of delegations as Array<{ brief?: { target?: string }; status?: string }>) {
+      const target = d.brief?.target
+      if (target === undefined || !['queued', 'dispatched', 'running', 'escalated'].includes(d.status ?? '')) continue
+      openDelegationByPosition.set(target, (openDelegationByPosition.get(target) ?? 0) + 1)
+    }
+    const openTaskByPosition = new Map<string, number>()
+    for (const t of this.taskboard?.list() ?? []) {
+      const item = t as { assignee?: string; status?: string }
+      if (item.assignee === undefined || item.status === 'done' || item.status === 'cancelled') continue
+      openTaskByPosition.set(item.assignee, (openTaskByPosition.get(item.assignee) ?? 0) + 1)
+    }
+    for (const p of this.config.positions) {
+      const nodeId = this.org.nodeOfPosition(p.id)
+      const bucket = positionsByNode[nodeId]
+      if (bucket === undefined) continue
+      bucket.push({
+        id: p.id,
+        title: p.title,
+        preset: p.occupant?.preset,
+        kind: p.occupant?.kind ?? 'agent',
+        status: statusOf(p.id),
+        ...(p.restricted ? { restricted: true } : {}),
+      } as never)
+      // 顺带把岗位的委派/任务数记到岗位行(聚合时累加)
+      ;(bucket[bucket.length - 1] as { openDelegations?: number; openTasks?: number }).openDelegations = openDelegationByPosition.get(p.id) ?? 0
+      ;(bucket[bucket.length - 1] as { openTasks?: number }).openTasks = openTaskByPosition.get(p.id) ?? 0
+    }
+    // 聚合:后序(children 闭包和)
+    const aggregates: OrgTreeSnapshot['aggregates'] = {}
+    const zero = (): OrgTreeSnapshot['aggregates'][string] => ({ positionCount: 0, busy: 0, idle: 0, offline: 0, failed: 0, openDelegations: 0, openTasks: 0 })
+    const visit = (nodeId: string): OrgTreeSnapshot['aggregates'][string] => {
+      const agg = zero()
+      for (const child of this.org!.childrenOf(nodeId)) {
+        const childAgg = visit(child)
+        for (const k of Object.keys(agg) as Array<keyof typeof agg>) agg[k] += childAgg[k]
+      }
+      for (const pos of positionsByNode[nodeId] ?? []) {
+        agg.positionCount += 1
+        const status = pos.status
+        if (status === 'busy') agg.busy += 1
+        else if (status === 'idle') agg.idle += 1
+        else if (status === 'failed') agg.failed += 1
+        else agg.offline += 1
+        agg.openDelegations += (pos as { openDelegations?: number }).openDelegations ?? 0
+        agg.openTasks += (pos as { openTasks?: number }).openTasks ?? 0
+      }
+      aggregates[nodeId] = agg
+      return agg
+    }
+    visit(this.org.root())
+    return { nodes, positionsByNode, aggregates }
+  }
+
   snapshot(): TeamSnapshot {
     return {
       loaded: this.loaded,
@@ -349,6 +435,7 @@ export class TeamService {
       tasks: this.taskboard?.list() ?? [],
       mailCount: this.mailbox?.list().length ?? 0,
       memoryCount: this.memory.count(),
+      tree: this.snapshotTree(),
     }
   }
 
