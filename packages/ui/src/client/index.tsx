@@ -101,14 +101,24 @@ interface OverviewStats {
   inflight: number
 }
 
-async function fetchTeamSnapshot(): Promise<TeamSnapshotData | null> {
+async function fetchTeamSnapshot(viewer?: string): Promise<TeamSnapshotData | null> {
   try {
-    const res = await fetch('/api/orgos/snapshot', { headers: { Accept: 'application/json' } })
+    // P3 成员视角:成员会话打开团队室时带 ?viewer= 由服务端投影(树裁剪+scope);
+    // 根会话缺省 = 全树视图(现状)。显示投影非安全边界(服务端注释同义)。
+    const url = viewer === undefined ? '/api/orgos/snapshot' : `/api/orgos/snapshot?viewer=${encodeURIComponent(viewer)}`
+    const res = await fetch(url, { headers: { Accept: 'application/json' } })
     if (!res.ok) return null
     return (await res.json()) as TeamSnapshotData
   } catch {
     return null
   }
+}
+
+/** 会话 id → 成员岗位 id(orgos-member-<positionId> 命名约定);根/web 会话返回 undefined */
+function viewerOfSession(sessionId?: string): string | undefined {
+  if (sessionId === undefined || !sessionId.startsWith('orgos-member-')) return undefined
+  const positionId = sessionId.slice('orgos-member-'.length)
+  return positionId.length > 0 ? positionId : undefined
 }
 
 // ---------------------------------------------------------------------------

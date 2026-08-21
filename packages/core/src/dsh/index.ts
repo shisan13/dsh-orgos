@@ -167,11 +167,24 @@ export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
     webServer.register({
       kind: 'exact',
       path: '/api/orgos/snapshot',
-      handler: (_req, res) => {
+      handler: (req, res) => {
         try {
+          // P3 成员视角:?viewer=<positionId> 时按该岗位投影(树裁剪 + 委派/任务 scope 投影);
+          // 缺省/未识别身份 = 根视角(现状不变)。显示投影非安全边界(见 snapshotTree 注释)。
+          const url = new URL((req as { url?: string }).url ?? '/', 'http://localhost')
+          const viewer = url.searchParams.get('viewer') ?? undefined
+          const base = viewer === undefined ? service.snapshot() : service.status(viewer)
+          const tree = service.snapshotTree(viewer)
+          if (tree !== undefined && viewer !== undefined) {
+            // 扁平岗位列表与树裁剪一致(成员只显示可见子树的岗位)
+            const visible = new Set<string>()
+            for (const bucket of Object.values(tree.positionsByNode)) for (const p of bucket) visible.add(p.id)
+            base.positions = base.positions.filter((p) => visible.has(p.id))
+          }
           const body = JSON.stringify({
-            ...service.snapshot(),
-            run: service.runReport('web-root', 20).summary,
+            ...base,
+            tree,
+            run: service.runReport(viewer ?? 'web-root', 20).summary,
             doctor: service.doctor(),
           })
           res.statusCode = 200

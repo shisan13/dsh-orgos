@@ -343,8 +343,10 @@ export class TeamService {
     this.options.emit?.('team/member-status', { positionId, status, at: new Date().toISOString() })
   }
 
-  /** 组织树聚合(P1 团队室树视图):O(N) 单次后序遍历,每节点子树状态/委派/任务闭包和 */
-  snapshotTree(): OrgTreeSnapshot | undefined {
+  /** 组织树聚合(P1 团队室树视图):O(N) 单次后序遍历,每节点子树状态/委派/任务闭包和。
+   *  P3 成员视角:viewer 解析后非根治理岗时,裁剪到其可见子树(节点/岗位/聚合同步裁剪);
+   *  这是显示投影(体验优化),不是安全边界 —— 数据本体经团队工具投影,快照端点本身为根视角。 */
+  snapshotTree(viewerPositionId?: string): OrgTreeSnapshot | undefined {
     if (!this.org || !this.config) return undefined
     const nodes: OrgTreeSnapshot['nodes'] = []
     const positionsByNode: OrgTreeSnapshot['positionsByNode'] = {}
@@ -417,6 +419,24 @@ export class TeamService {
       return agg
     }
     visit(this.org.root())
+    // P3:成员视角裁剪(viewer 经 resolveViewer:web 根 → org 根治理岗,可见全树)
+    const viewer = viewerPositionId === undefined ? undefined : this.resolveViewer(viewerPositionId)
+    if (viewer !== undefined) {
+      const viewerNode = this.org.nodeOfPosition(viewer)
+      const visible = new Set<string>()
+      const collect = (nodeId: string): void => {
+        visible.add(nodeId)
+        for (const child of this.org!.childrenOf(nodeId)) collect(child)
+      }
+      collect(viewerNode)
+      if (viewerNode !== this.org.root()) {
+        return {
+          nodes: nodes.filter((n) => visible.has(n.id)),
+          positionsByNode: Object.fromEntries(Object.entries(positionsByNode).filter(([k]) => visible.has(k))),
+          aggregates: Object.fromEntries(Object.entries(aggregates).filter(([k]) => visible.has(k))),
+        }
+      }
+    }
     return { nodes, positionsByNode, aggregates }
   }
 

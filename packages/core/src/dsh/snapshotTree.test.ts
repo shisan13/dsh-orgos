@@ -138,4 +138,24 @@ describe('snapshotTree(组织树聚合)', () => {
     })
     expect(bare.snapshotTree()).toBeUndefined()
   })
+
+  it('GIVEN team 成员 viewer WHEN snapshotTree(viewer) THEN 裁剪到其所属 team 子树', () => {
+    const tree = service.snapshotTree('coder-1')
+    const ids = tree?.nodes.map((n) => n.id).sort()
+    expect(ids).toEqual(['team-main'])
+    expect(tree?.positionsByNode['team-main']?.map((p) => p.id).sort()).toEqual(['assistant-1', 'coder-1'])
+    expect(tree?.positionsByNode['team-tg']).toBeUndefined()
+    expect(tree?.aggregates['team-main']?.positionCount).toBe(2)
+    expect(tree?.aggregates['acme']).toBeUndefined()
+  })
+
+  it('GIVEN org 根治理岗 viewer WHEN snapshotTree(viewer) THEN 全树可见', () => {
+    const tree = service.snapshotTree('lead')
+    expect(tree?.nodes.map((n) => n.id).sort()).toEqual(['acme', 'team-main', 'team-tg'])
+  })
+
+  it('GIVEN 未识别 viewer(web-root)WHEN snapshotTree THEN 回退根视角全树', () => {
+    const tree = service.snapshotTree('web-root')
+    expect(tree?.nodes).toHaveLength(3)
+  })
 })
