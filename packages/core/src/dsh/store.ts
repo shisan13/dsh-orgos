@@ -12,6 +12,8 @@ export type StreamName = 'registry' | 'mailbox' | 'taskboard' | 'delegations' | 
 
 export interface TeamStore {
   append(stream: StreamName, record: Record<string, unknown>): void
+  /** 批量追加(可选;SQLite 实现单事务,JSONL 实现循环 append) */
+  appendBatch?(stream: StreamName, records: Record<string, unknown>[]): void
   readAll(stream: StreamName): Record<string, unknown>[]
   saveSnapshot(stream: StreamName, state: Record<string, unknown>): void
   loadSnapshot(stream: StreamName): Record<string, unknown> | undefined
@@ -42,6 +44,12 @@ export function createFileTeamStore(stateRoot: string): TeamStore {
     append(stream, record) {
       ensureHeader(stream)
       writeFileSync(pathFor(stream), JSON.stringify({ at: new Date().toISOString(), ...record }) + '\n', { flag: 'a' })
+    },
+    appendBatch(stream, records) {
+      for (const record of records) {
+        ensureHeader(stream)
+        writeFileSync(pathFor(stream), JSON.stringify({ at: new Date().toISOString(), ...record }) + '\n', { flag: 'a' })
+      }
     },
     readAll(stream) {
       const p = pathFor(stream)

@@ -23,6 +23,8 @@ export interface TeamCoreConfig {
   ownerIds: string[]
   allowlist?: string[]
   heartbeatIntervalMinutes?: number
+  /** 存储引擎(M3.1):'jsonl'(默认,append-only 文件)| 'sqlite'(WAL 单表;迁移走 scripts/migrate-store.mjs) */
+  storeEngine?: 'jsonl' | 'sqlite'
   /** member-dsh-sdk 后端(C 阶段):配置后 agent 成员以官方 SDK 子进程常驻运行 */
   memberDshSdk?: {
     /** 官方 SDK 客户端模块绝对路径(如 checkout 的 packages/sdk/client/lib/index.js) */
@@ -48,6 +50,7 @@ interface Ctx {
 
 import { join } from 'node:path'
 import { TeamService, type TeamServiceOptions } from './teamService.js'
+import { createSqliteTeamStore } from './storeSqlite.js'
 import { makeUserMessage } from './memberRuntime.js'
 import { seedPresets } from './seeder.js'
 import { marker } from './store.js'
@@ -81,6 +84,7 @@ export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
     allowlist: config.allowlist,
     agents: agents as never,
     presets: presets as never,
+    ...(config.storeEngine === 'sqlite' ? { store: createSqliteTeamStore(config.stateRoot) } : {}),
     ...(config.memberDshSdk ? { sdkMember: config.memberDshSdk } : {}),
     defaultModel: (ctx.get('agentDefaultModel') ?? undefined) as never,
     emit: (event, payload) => {
