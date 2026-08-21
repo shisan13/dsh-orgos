@@ -21,6 +21,7 @@ PACKS = {
     'im-whatsapp': 'dsh-orgos-im-whatsapp',
     'doc-feishu': 'dsh-orgos-doc-feishu',
     'doc-git': 'dsh-orgos-doc-git',
+    'team-rpc': 'dsh-orgos-team-rpc',
     'doc-feishu-docs': 'dsh-orgos-doc-feishu-docs',
     'bundle': 'dsh-orgos',
 }
