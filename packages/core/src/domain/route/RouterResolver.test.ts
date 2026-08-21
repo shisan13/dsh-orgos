@@ -191,3 +191,32 @@ describe('Given 路由表运行期维护', () => {
     expect(() => resolver({ defaultEntryNodeId: 'ghost' }).resolve({ channel: 'feishu', peer: { kind: 'group', id: 'g' }, sender: { id: 'u' }, kind: 'mention' })).toThrow(/defaultEntryNodeId/)
   })
 })
+
+describe('多 bot 同群静默(匹配路由同样生效)', () => {
+  const routes = [
+    { channel: 'telegram-main', peerId: 'g1', target: 'team-front' },
+    { channel: 'telegram-personal', peerId: 'g1', target: 'shared-1' },
+  ]
+  const mk = (extra?: Partial<ConstructorParameters<typeof RouterResolver>[2]>): RouterResolver =>
+    new RouterResolver(makeTree(), routes, { ownerIds: ['ou_owner'], ...extra })
+
+  it('When 群消息命中路由但非 @/回复 Then 静默(不串扰其它 bot 的岗位)', () => {
+    const r = mk({ requireMentionInGroup: true }).resolve({
+      channel: 'telegram-main', peer: { kind: 'group', id: 'g1' }, sender: { id: 'u1' }, kind: 'text',
+    })
+    expect(r.action).toBe('silent')
+  })
+  it('When 群消息 @ 本 bot 且命中路由 Then 正常路由', () => {
+    const r = mk({ requireMentionInGroup: true }).resolve({
+      channel: 'telegram-personal', peer: { kind: 'group', id: 'g1' }, sender: { id: 'u1' }, kind: 'mention',
+    })
+    expect(r.action).toBe('route')
+    expect((r as { target?: { id?: string } }).target?.id).toBe('shared-1')
+  })
+  it('When 群内回复本 bot 且命中路由 Then 正常路由', () => {
+    const r = mk({ requireMentionInGroup: true }).resolve({
+      channel: 'telegram-personal', peer: { kind: 'group', id: 'g1' }, sender: { id: 'u1' }, kind: 'reply',
+    })
+    expect(r.action).toBe('route')
+  })
+})

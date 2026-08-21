@@ -65,16 +65,19 @@ export class RouterResolver {
   }
 
   resolve(msg: RoutableMessage): RouteResult {
+    // 0. 群内静默规则对「匹配路由」同样生效(多 bot 同群:平台把消息投给每个 bot,
+    //    路由必须按「@了本 bot / 回复了本 bot」过滤,否则同一消息触发全部岗位);
+    //    reply 为明确指向本 bot 的交互(适配器已按回复归属过滤)
+    if (msg.peer.kind === 'group' && this.opts.requireMentionInGroup && msg.kind !== 'mention' && msg.kind !== 'reply') {
+      return { action: 'silent', reason: 'group-require-mention' }
+    }
     // 1. 路由表精确匹配
     const rule = this.routes.get(`${msg.channel}:${msg.peer.id}`)
     if (rule) {
       return this.routeTarget(rule.target)
     }
-    // 2. 未匹配:按 peer kind 回退
+    // 2. 未匹配:群消息回退默认入口(mention/reply 已在上方放行;text/其它已静默)
     if (msg.peer.kind === 'group') {
-      if (this.opts.requireMentionInGroup && msg.kind !== 'mention') {
-        return { action: 'silent', reason: 'group-require-mention' }
-      }
       return this.routeTarget(this.defaultEntryNodeId())
     }
     // direct:白名单校验

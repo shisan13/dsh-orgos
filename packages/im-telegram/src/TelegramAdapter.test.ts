@@ -307,3 +307,37 @@ describe('Given TelegramAdapter 长轮询生命周期', () => {
     await adapter.stop()
   })
 })
+
+describe('多 bot 同群回复归属(§9.2 补)', () => {
+  it('When 群内回复本 bot 消息 Then kind=reply', () => {
+    const update = {
+      update_id: 104,
+      message: {
+        message_id: 5,
+        from: { id: 111 },
+        chat: { id: -5303218893, type: 'supergroup' },
+        date: 1720000004,
+        text: '收到',
+        reply_to_message: { message_id: 2, from: { id: 999, is_bot: true, username: BOT_USERNAME } },
+      },
+    }
+    const r = telegramUpdateToMessage(update, BOT_USERNAME)
+    expect(r.ok && r.msg.kind).toBe('reply')
+  })
+
+  it('When 群内回复其它 bot 消息 Then kind 保持 text(路由层静默候选)', () => {
+    const update = {
+      update_id: 105,
+      message: {
+        message_id: 6,
+        from: { id: 111 },
+        chat: { id: -5303218893, type: 'supergroup' },
+        date: 1720000005,
+        text: '收到',
+        reply_to_message: { message_id: 3, from: { id: 998, is_bot: true, username: 'other_bot' } },
+      },
+    }
+    const r = telegramUpdateToMessage(update, BOT_USERNAME)
+    expect(r.ok && r.msg.kind).toBe('text')
+  })
+})

@@ -194,7 +194,7 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆/替换)'
       channel: 'feishu',
       peer: { kind: 'group', id: 'oc_room' },
       sender: { id: 'ou_owner' },
-      kind: 'text',
+      kind: 'mention',
       content: 'hello',
       messageId: 'm1',
     })
@@ -300,7 +300,7 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆/替换)'
         channel: 'feishu',
         peer: { kind: 'group', id: 'oc_room' },
         sender: { id: 'ou_owner' },
-        kind: 'text',
+        kind: 'mention',
         content: 'hi',
         messageId: 'm-activate',
       })
@@ -321,7 +321,7 @@ describe('TeamService 补充路径(邮箱/任务板/human/replay/记忆/替换)'
         channel: 'feishu',
         peer: { kind: 'group', id: 'oc_room' },
         sender: { id: 'ou_owner' },
-        kind: 'text',
+        kind: 'mention',
         content: 'again',
         messageId: 'm-again',
       })

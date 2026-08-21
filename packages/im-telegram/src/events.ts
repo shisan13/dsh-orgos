@@ -90,11 +90,21 @@ export function telegramUpdateToMessage(raw: unknown, botUsername?: string): Tel
   const threadId = message.reply_to_message?.message_id
   if (typeof threadId === 'number') msg.peer.threadId = String(threadId)
   if (attachment !== undefined) msg.attachment = attachment
-  // 回复消息:群/私聊内回复都标 reply(带 threadId)
+  // 回复归属:私聊回复一律标 reply;群内仅当回复对象是「本 bot」才标 reply
+  // (多 bot 同群且隐私关闭时每个 bot 收到全部消息,必须按归属过滤,否则串扰)
   if (msg.kind === 'text' && msg.peer.threadId !== undefined) {
-    msg.kind = 'reply'
+    if (!isGroup || repliesToBot(message.reply_to_message, botUsername)) {
+      msg.kind = 'reply'
+    }
   }
   return { ok: true, msg }
+}
+
+/** 群内回复归属:reply_to_message.from.username 与本 bot 一致才算回复本 bot */
+function repliesToBot(replyTo: unknown, botUsername?: string): boolean {
+  if (typeof replyTo !== 'object' || replyTo === null || botUsername === undefined) return false
+  const username = (replyTo as { from?: { username?: string } }).from?.username
+  return username !== undefined && username.toLowerCase() === botUsername.toLowerCase()
 }
 
 /** 按钮回调:data 为紧凑 JSON {a: approvalId, act: allow|deny}(Telegram callback_data ≤64 字节) */
