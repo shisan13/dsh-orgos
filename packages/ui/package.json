@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos Client 半:团队室页签(组织树/成员状态/Run 摘要,HTTP 只读快照渲染)",
   "type": "module",
   "main": "lib/index.js",

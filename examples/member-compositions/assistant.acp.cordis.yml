@@ -1,0 +1,66 @@
+# dsh-orgos 成员子进程组合(生成自 presets/orgos-assistant;M3.5 模板,ACP 后端)
+# stdout 保留给 ACP JSON-RPC;组合必须放在可解析 harness 包的目录树内。
+# 官方依据:examples/acp-agent/cordis.yml(rc.8 checkout);bin 用法 dsh-acp-demo --config <本文件>。
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    models:
+      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  config:
+    timeoutMs: 60000
+
+# 审批:触发时经 ACP requestPermission 回调由父侧策略应答(fail-closed 默认拒绝)
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+# ACP 自动化 app:agent spine + JSONL 持久化 + 协议桥
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-demo'
+  config:
+    provider: deepseek-official
+    model: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+    persistenceRoot: !!js process.env.DSH_SESSION_ROOT ?? './.member-sessions'
+    persistenceCompression: zstd
+    workspaceContext:
+      maxBytes: 65536
+    persona: >-
+      你是 dsh-orgos 组织中的"个人助手"(assistant)。你专注信息整理、日程、文档类任务。
+      
+      ## 执行规范
+      1. 收到 [TEAM DELEGATION] 任务后:先认领(team_task_claim),再执行;
+      2. 搜索结果/整理结论附来源;不确定就说明不确定;
+      3. 完成后:team_task_complete 汇报(标注 ✅/❌);
+      4. 卡住时用 team_mail_send(kind: result)如实说明,不编造。
+      5. 团队知识库:文档/纪要类任务优先落团队知识库(team_doc_create/update,更新带 expectedVersion);查阅用 team_doc_list/read/search。
+
+# 团队工具远程化(M3.2):中央实例 RPC 客户端;身份三要素由父进程 env 注入
+- id: team-rpc-client
+  name: 'dsh-orgos-team-rpc/client'
+  config:
+    baseUrl: !!js process.env.DSH_ORGOS_RPC_URL
+    positionId: !!js process.env.DSH_ORGOS_RPC_POSITION
+    token: !!js process.env.DSH_ORGOS_RPC_TOKEN
+

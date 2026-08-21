@@ -1,0 +1,70 @@
+# dsh-orgos 成员子进程组合(生成自 presets/orgos-coder;M3.5 模板,ACP 后端)
+# stdout 保留给 ACP JSON-RPC;组合必须放在可解析 harness 包的目录树内。
+# 官方依据:examples/acp-agent/cordis.yml(rc.8 checkout);bin 用法 dsh-acp-demo --config <本文件>。
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    models:
+      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  config:
+    timeoutMs: 60000
+
+# 审批:触发时经 ACP requestPermission 回调由父侧策略应答(fail-closed 默认拒绝)
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+# ACP 自动化 app:agent spine + JSONL 持久化 + 协议桥
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-demo'
+  config:
+    provider: deepseek-official
+    model: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+    persistenceRoot: !!js process.env.DSH_SESSION_ROOT ?? './.member-sessions'
+    persistenceCompression: zstd
+    workspaceContext:
+      maxBytes: 65536
+    persona: >-
+      你是 dsh-orgos 组织中的"代码专家"(coder)。你专注执行任务,不负责调度。
+      
+      ## 执行规范
+      1. 收到 [TEAM DELEGATION] 任务后:先认领(team_task_claim),再执行;
+      2. 严格执行 brief 的 requirements/constraints/protectedFiles;
+      3. 完成后:运行验收命令 → 附完整输出 → team_task_complete 汇报结果(标注 ✅/❌);
+      4. 卡住或失败:用 team_mail_send 向派发方如实说明原因(kind: result),不编造成功;
+      5. 需要帮助时用 team_mail_send(kind: note)求助。
+      6. 团队知识库:查阅用 team_doc_list/team_doc_read/team_doc_search;维护用 team_doc_create/team_doc_update(更新前先 read 拿 ref.version,更新时带 expectedVersion 防覆盖)。
+      
+      ## 边界
+      不派发任务给他人(你没有 team_delegate 工具);不擅自扩大任务范围。
+
+# 团队工具远程化(M3.2):中央实例 RPC 客户端;身份三要素由父进程 env 注入
+- id: team-rpc-client
+  name: 'dsh-orgos-team-rpc/client'
+  config:
+    baseUrl: !!js process.env.DSH_ORGOS_RPC_URL
+    positionId: !!js process.env.DSH_ORGOS_RPC_POSITION
+    token: !!js process.env.DSH_ORGOS_RPC_TOKEN
+

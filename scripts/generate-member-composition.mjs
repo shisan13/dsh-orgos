@@ -3,7 +3,7 @@
  * dsh-orgos 运维脚本:角色 preset → 成员子进程组合生成(M3.5)
  *
  * 用法:
- *   node scripts/generate-member-composition.mjs <presetId> <out.yml> [--rpc]
+ *   node scripts/generate-member-composition.mjs <presetId> <out.yml> [--rpc] [--backend sdk|acp]
  *
  * - 从 presets/<presetId>/agent.cordis.yml 提取 persona 文本(角色人格),
  *   生成 member-dsh-sdk 子进程组合:官方 sdk-jsonrpc-server + llm-deepseek +
@@ -22,6 +22,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const presetId = process.argv[2]
 const outPath = process.argv[3]
 const withRpc = process.argv.includes('--rpc')
+const backend = process.argv.includes('--backend') ? process.argv[process.argv.indexOf('--backend') + 1] : 'sdk'
+if (backend !== 'sdk' && backend !== 'acp') {
+  console.error('--backend 仅支持 sdk|acp')
+  process.exit(2)
+}
 if (!presetId || !outPath) {
   console.error('usage: node scripts/generate-member-composition.mjs <presetId> <out.yml> [--rpc]')
   process.exit(2)
@@ -57,7 +62,10 @@ const rpcBlock = withRpc
 `
   : ''
 
-const composition = `# dsh-orgos 成员子进程组合(生成自 presets/${presetId};M3.5 模板)
+const composition = backend === 'acp' ? acpComposition() : sdkComposition()
+
+function sdkComposition() {
+  return `# dsh-orgos 成员子进程组合(生成自 presets/${presetId};M3.5 模板,SDK 后端)
 # stdout 保留给 JSON-RPC;组合必须放在可解析 harness 包的目录树内。
 # 团队协作经 team-rpc 客户端(需父进程配置 rpc.url)或父进程代理。
 
@@ -123,6 +131,63 @@ ${persona.split('\n').map((l) => '      ' + l).join('\n')}
     compression: 'zstd'
 ${rpcBlock}
 `
+}
+
+/** ACP 后端组合:官方 acp-agent 行(dsh-acp-demo)+ 与 SDK 版相同的叶子行 */
+function acpComposition() {
+  return `# dsh-orgos 成员子进程组合(生成自 presets/${presetId};M3.5 模板,ACP 后端)
+# stdout 保留给 ACP JSON-RPC;组合必须放在可解析 harness 包的目录树内。
+# 官方依据:examples/acp-agent/cordis.yml(rc.8 checkout);bin 用法 dsh-acp-demo --config <本文件>。
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    models:
+      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+    workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  config:
+    timeoutMs: 60000
+
+# 审批:触发时经 ACP requestPermission 回调由父侧策略应答(fail-closed 默认拒绝)
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+# ACP 自动化 app:agent spine + JSONL 持久化 + 协议桥
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-demo'
+  config:
+    provider: deepseek-official
+    model: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+    persistenceRoot: !!js process.env.DSH_SESSION_ROOT ?? './.member-sessions'
+    persistenceCompression: zstd
+    workspaceContext:
+      maxBytes: 65536
+    persona: >-
+${persona.split('\n').map((l) => '      ' + l).join('\n')}
+${rpcBlock}
+`
+}
 
 writeFileSync(outPath, composition)
-console.log(`生成:${outPath}(preset=${presetId}, rpc=${withRpc ? 'on' : 'off'}, persona ${persona.length} 字)`)
+console.log(`生成:${outPath}(preset=${presetId}, backend=${backend}, rpc=${withRpc ? 'on' : 'off'}, persona ${persona.length} 字)`)

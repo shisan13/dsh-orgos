@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-team-rpc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos 团队工具远程化(M3.2):中央实例 RPC 服务端 + 成员子进程 RPC 客户端,TeamToolDefs 单源驱动",
   "type": "module",
   "main": "lib/index.js",

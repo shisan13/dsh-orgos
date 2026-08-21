@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-im-feishu",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos 飞书/Lark WebSocket 适配器:入站事件规范化、任务卡/决策卡/审批卡渲染、长消息分段、重连退避(harness-agnostic)",
   "type": "module",
   "main": "lib/index.js",

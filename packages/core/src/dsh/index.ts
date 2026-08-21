@@ -36,6 +36,9 @@ export interface TeamCoreConfig {
     model?: string
     maxTokens?: number
   }
+  /** member-acp 后端(M3.3):配置后 agent 成员以官方 ACP 协议子进程常驻(ACP 子进程 P1 + 跨轮次会话复用);
+   *  同 AcpMemberOptions,仅不含 memberEnv(该注入点由 TeamService 按 RPC 配置下发) */
+  acpMember?: Omit<AcpMemberOptions, 'memberEnv'>
 }
 
 // 本地轻量 cordis 形状(运行时结构兼容;TS 编译零依赖)
@@ -53,32 +56,43 @@ interface Ctx {
 import { join } from 'node:path'
 import { TeamService, type TeamServiceOptions } from './teamService.js'
 import { createSqliteTeamStore } from './storeSqlite.js'
-import { makeUserMessage } from './memberRuntime.js'
 import { seedPresets } from './seeder.js'
 import { marker } from './store.js'
+import type { AcpMemberOptions } from './memberRuntime.js'
 
 export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
   marker(config.stateRoot, 'core', 'apply')
   const agents = ctx.agents
   const presets = ctx.agentPresets
 
-  // member-dsh-sdk 子进程 env:官方 SDK 客户端按"整体替换"语义接管子环境
+  // member-dsh-sdk / member-acp 子进程 env:官方客户端按"整体替换"语义接管子环境
   // (scrubbed parent env 不含凭据),因此必须显式携带可执行解析所需的 PATH/HOME,
   // 并经父进程 credentials 服务解析 DEEPSEEK_API_KEY 注入(密钥零落配置/日志)。
-  if (config.memberDshSdk !== undefined) {
-    const launchEnv: Record<string, string> = {
+  // M3.3:同一注入块对两个成员后端都执行(泛化)。
+  const memberLaunches = [config.memberDshSdk?.launch, config.acpMember?.launch].filter((l): l is NonNullable<typeof l> => l !== undefined)
+  if (memberLaunches.length > 0) {
+    const baseEnv: Record<string, string> = {
       PATH: process.env.PATH ?? '/usr/bin:/bin',
       HOME: process.env.HOME ?? '',
-      ...(config.memberDshSdk.launch.env ?? {}),
     }
-    if (launchEnv.DEEPSEEK_API_KEY === undefined) {
-      // inject 注入的 credentials 跨 bundle 边界可见(ctx.get 在 bundle 域内不可见);
-      // 解析结果只记状态 marker,密钥零落盘/日志
-      const resolved = await ctx.credentials.resolve('DEEPSEEK_API_KEY')
-      if (resolved?.value !== undefined && resolved.value !== '') launchEnv.DEEPSEEK_API_KEY = resolved.value
-      marker(config.stateRoot, 'core', 'sdk-cred', launchEnv.DEEPSEEK_API_KEY === undefined ? 'resolve-empty' : 'ok')
+    // DEEPSEEK_API_KEY 解析结果两后端共用(仅解析一次;用户显式提供时不覆盖)
+    let apiKey: string | undefined
+    let resolvedFromCredentials = false
+    for (const launch of memberLaunches) {
+      if (launch.env?.DEEPSEEK_API_KEY !== undefined) {
+        launch.env = { ...baseEnv, ...launch.env }
+        continue
+      }
+      if (apiKey === undefined) {
+        resolvedFromCredentials = true
+        // inject 注入的 credentials 跨 bundle 边界可见(ctx.get 在 bundle 域内不可见);
+        // 解析结果只记状态 marker,密钥零落盘/日志
+        const resolved = await ctx.credentials.resolve('DEEPSEEK_API_KEY')
+        if (resolved?.value !== undefined && resolved.value !== '') apiKey = resolved.value
+      }
+      launch.env = { ...baseEnv, ...(launch.env ?? {}), ...(apiKey === undefined ? {} : { DEEPSEEK_API_KEY: apiKey }) }
     }
-    config.memberDshSdk.launch.env = launchEnv
+    marker(config.stateRoot, 'core', 'member-cred', resolvedFromCredentials ? (apiKey === undefined ? 'resolve-empty' : 'ok') : 'user-provided')
   }
   const options: TeamServiceOptions = {
     stateRoot: config.stateRoot,
@@ -89,6 +103,7 @@ export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
     ...(config.storeEngine === 'sqlite' ? { store: createSqliteTeamStore(config.stateRoot) } : {}),
     ...(config.rpc !== undefined ? { rpc: config.rpc } : {}),
     ...(config.memberDshSdk ? { sdkMember: config.memberDshSdk } : {}),
+    ...(config.acpMember ? { acpMember: config.acpMember } : {}),
     defaultModel: (ctx.get('agentDefaultModel') ?? undefined) as never,
     emit: (event, payload) => {
       try {
@@ -189,18 +204,13 @@ export async function apply(ctx: Ctx, config: TeamCoreConfig): Promise<void> {
     }
   }
 
-  // 团队心跳:周期扫描,向各层 orchestrator 成员注入心跳摘要(技术设计 §10.3)
+  // 团队心跳:周期扫描,向各层 orchestrator 成员注入心跳摘要(技术设计 §10.3;
+  // M3.4:远程成员经 deliver wake:false 合并上下文,不触发独立轮次)
   const intervalMinutes = config.heartbeatIntervalMinutes ?? 10
   const timer = setInterval(() => {
     try {
       if (!service.loaded) return
-      const report = service.heartbeatReport()
-      const agentsSvc = agents as { list(): Array<{ id: string; inject(msg: unknown): void }> }
-      for (const agent of agentsSvc.list()) {
-        if (agent.id.startsWith('orgos-member-')) {
-          agent.inject(makeUserMessage(report.text, { kind: 'plugin', plugin: 'dsh-orgos', form: 'heartbeat' }))
-        }
-      }
+      service.heartbeatInject()
     } catch (error) {
       ctx.logger.warn('[dsh-orgos-core] 心跳扫描失败:', String(error))
     }

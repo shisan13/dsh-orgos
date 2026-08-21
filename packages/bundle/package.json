@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "DeepSeek Harness 上的组织操作系统:IM 路由 + 常驻团队 + 绝不 DIY 调度哲学,人机混合组织的开源插件",
   "license": "MIT",

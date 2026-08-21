@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-im-telegram",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos telegram 适配器(纯协议层,harness-agnostic)",
   "type": "module",
   "main": "lib/index.js",

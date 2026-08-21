@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-doc-feishu",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos 飞书多维表格文档 provider:团队知识目录/文档协作的 Feishu Bitable 落地(harness-agnostic 协议层 + DSH 绑定层)",
   "type": "module",
   "main": "lib/index.js",

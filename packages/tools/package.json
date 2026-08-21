@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos 团队工具纯逻辑核心:team_delegate/team_mail_*/team_task_*/team_status/team_setup 的参数校验、错误码、scope 投影与渲染(harness-agnostic,Pro 阶段薄包装注册为 cordis 工具行)",
   "type": "module",
   "main": "lib/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-im-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos IM seam:MessageGateway 适配器接口 + NormalizedMessage 规范化 + 幂等/出站队列(harness-agnostic)",
   "type": "module",
   "main": "lib/index.js",

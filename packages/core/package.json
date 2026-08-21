@@ -1,6 +1,6 @@
 {
   "name": "dsh-orgos-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "dsh-orgos 核心库:domain/ 纯领域内核(组织树/路由/委派状态机/scope 投影/digest/ACL,harness-agnostic)+ dsh/ 绑定层(Pro 阶段)",
   "type": "module",
   "main": "lib/domain/index.js",

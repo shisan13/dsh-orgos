@@ -31,9 +31,10 @@ import {
   type TeamConfig,
 } from '../domain/index.js'
 import type { NormalizedMessage } from 'dsh-orgos-im-gateway'
-import { SessionMemberRuntime, DshSdkMemberRuntime, HybridMemberRuntime, type MemberDef, type DshAgents, type AgentPresetsMount, type AgentDefaultModelLike, type MemberRuntimeFacade, type DshSdkMemberOptions } from './memberRuntime.js'
+import { SessionMemberRuntime, DshSdkMemberRuntime, AcpMemberRuntime, HybridMemberRuntime, type MemberDef, type DshAgents, type AgentPresetsMount, type AgentDefaultModelLike, type MemberRuntimeFacade, type DshSdkMemberOptions, type AcpMemberOptions } from './memberRuntime.js'
 import { atomicWriteTeamYml, createFileTeamStore, readTeamYml, type TeamStore } from './store.js'
 import type { DocumentProvider, DocumentContent, OrgFederation, DocListResult, DocGetResult, DocCreateResult, DocRouteUpdateResult, DocSearchResult, DocumentRef } from './extensions.js'
+import { makeUserMessage } from './memberRuntime.js'
 
 export interface TeamServiceOptions {
   stateRoot: string
@@ -52,6 +53,8 @@ export interface TeamServiceOptions {
   store?: TeamStore
   /** 成员后端切换(ADR-002):配置后 agent 成员走 member-dsh-sdk(P1 进程常驻),human 不受影响 */
   sdkMember?: DshSdkMemberOptions
+  /** member-acp 后端(M3.3):配置后 agent 成员以官方 ACP 协议子进程常驻(acpMember.positions 列出走 ACP 的岗位) */
+  acpMember?: AcpMemberOptions
   /** M3.2 团队工具远程化:中央实例 RPC 入口 URL(配置后为每个 SDK/ACP 成员签发 token 并注入子进程 env) */
   rpc?: { url: string }
 }
@@ -92,6 +95,8 @@ export class TeamService {
   private readonly teamEventListeners = new Set<(event: string, payload: Record<string, unknown>) => void>()
   /** M3.2 RPC 认证:positionId → 每成员随机 token(子进程 env 注入,服务端恒时比较) */
   private readonly rpcTokens = new Map<string, string>()
+  /** 远程成员岗位集合(member-dsh-sdk/ACP 后端;心跳走 deliver 上下文合并而非父 agent inject) */
+  private readonly remoteMemberPositions = new Set<string>()
 
   constructor(readonly options: TeamServiceOptions) {
     // 存储 provider 注入点:默认 JSONL;SQLite/联邦后端插拔替换,数据记录格式不变
@@ -117,6 +122,8 @@ export class TeamService {
     const onAssistant = (positionId: string, text: string): void => {
       this.deliverAssistantText(positionId, text)
     }
+    for (const p of options.sdkMember?.positions ?? []) this.remoteMemberPositions.add(p)
+    for (const p of options.acpMember?.positions ?? []) this.remoteMemberPositions.add(p)
     const sessionRuntime = new SessionMemberRuntime(
       options.agents,
       options.presets,
@@ -127,10 +134,11 @@ export class TeamService {
         this.presentApproval(positionId, approvalId, toolName, reason)
       },
     )
-    // ADR-002 MemberBackend seam:member-dsh-sdk(P1 进程常驻)与 member-session 混合
-    // (sdkMember.positions 列出走 SDK 的岗位;缺省 = 全部 agent 岗位)
+    // ADR-002 MemberBackend seam:member-dsh-sdk(P1 进程常驻)与 member-acp(M3.3,ACP 子进程常驻)
+    // 与 member-session 混合(sdkMember.positions / acpMember.positions 列出走远程后端的岗位)
     const sdkOptions = options.sdkMember
-    // M3.2:配置了 RPC 入口 → 每个 SDK 成员 spawn 时注入子进程 env(URL/岗位/随机 token)
+    const acpOptions = options.acpMember
+    // M3.2:配置了 RPC 入口 → 每个 SDK/ACP 成员 spawn 时注入子进程 env(URL/岗位/随机 token)
     const memberEnv =
       options.rpc?.url === undefined
         ? undefined
@@ -139,14 +147,30 @@ export class TeamService {
             DSH_ORGOS_RPC_POSITION: positionId,
             DSH_ORGOS_RPC_TOKEN: this.issueMemberRpc(positionId),
           })
-    this.memberRuntime = sdkOptions === undefined
+    const acpRuntime =
+      acpOptions === undefined
+        ? undefined
+        : new AcpMemberRuntime(
+            acpOptions,
+            onStatus,
+            onAssistant,
+            (positionId, event, detail) => {
+              this.logRun('acp-member', { positionId, event, detail })
+            },
+            memberEnv,
+          )
+    this.memberRuntime = sdkOptions === undefined && acpRuntime === undefined
       ? sessionRuntime
       : new HybridMemberRuntime(
           sessionRuntime,
-          new DshSdkMemberRuntime(sdkOptions, onStatus, onAssistant, (positionId, event, detail) => {
-            this.logRun('sdk-member', { positionId, event, detail })
-          }, memberEnv),
-          new Set(sdkOptions.positions),
+          sdkOptions === undefined
+            ? undefined
+            : new DshSdkMemberRuntime(sdkOptions, onStatus, onAssistant, (positionId, event, detail) => {
+                this.logRun('sdk-member', { positionId, event, detail })
+              }, memberEnv),
+          new Set(sdkOptions?.positions ?? []),
+          acpRuntime,
+          new Set(acpOptions?.positions ?? []),
         )
   }
 
@@ -768,6 +792,25 @@ export class TeamService {
   /** 扩展面:列出已注册文档 provider(可观测) */
   listDocumentProviders(): Array<{ id: string; label: string }> {
     return [...this.documentProviders.values()].map((p) => ({ id: p.id, label: p.label }))
+  }
+
+  /** 心跳注入(M3.4):session 成员经父 agent inject;sdk/acp 成员经 deliver wake:false
+   *  合并为下一轮上下文(不 spawn、不触发独立轮次) */
+  heartbeatInject(): void {
+    if (!this.loaded) return
+    const text = this.heartbeatReport().text
+    const agentsSvc = this.options.agents as { list(): Array<{ id: string; inject(msg: unknown): void }> }
+    for (const agent of agentsSvc.list()) {
+      if (agent.id.startsWith('orgos-member-')) {
+        agent.inject(makeUserMessage(text, { kind: 'plugin', plugin: 'dsh-orgos', form: 'heartbeat' }))
+      }
+    }
+    for (const member of this.members.values()) {
+      if (member.kind !== 'agent') continue
+      if (this.remoteMemberPositions.has(member.positionId)) {
+        void this.memberRuntime.deliver(member, text, { wake: false, source: { kind: 'plugin', plugin: 'dsh-orgos', form: 'heartbeat' } })
+      }
+    }
   }
 
   // ---- M3.2 RPC 认证:成员子进程 HTTP 直连团队工具的每成员 token ----

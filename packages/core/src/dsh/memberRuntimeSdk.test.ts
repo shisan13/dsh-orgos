@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DshSdkMemberRuntime, HybridMemberRuntime } from './memberRuntime.js'
+import { DshSdkMemberRuntime, HybridMemberRuntime, type DshAgents, type AgentPresetsMount, type LiveAgent } from './memberRuntime.js'
+import { TeamService } from './teamService.js'
 import type { MemberDef } from './memberRuntime.js'
 
 /** fake SDK 客户端模块源码:记录构造参数/会话/run 序列,可编程失败 */
@@ -232,3 +233,120 @@ describe('HybridMemberRuntime(按岗位分流)', () => {
     rmSync(hdir, { recursive: true, force: true })
   })
 })
+
+describe('DshSdkMemberRuntime 心跳上下文合并(M3.4)', () => {
+  let hdir: string
+  let hEntry: string
+  let hmod: { instances: Array<{ runs: Array<{ input: string }> }> }
+
+  beforeEach(async () => {
+    hdir = mkdtempSync(join(tmpdir(), 'orgos-sdk-hb-'))
+    writeFileSync(join(hdir, 'fake-sdk.mjs'), fakeModuleSource())
+    hEntry = pathToFileURL(join(hdir, 'fake-sdk.mjs')).href
+    hmod = (await import(hEntry)) as never
+  })
+  afterEach(() => {
+    rmSync(hdir, { recursive: true, force: true })
+  })
+
+  it('GIVEN wake:false 心跳 WHEN deliver THEN 只存上下文:不 spawn 子进程、不触发轮次', async () => {
+    const events: string[] = []
+    const runtime = new DshSdkMemberRuntime({ sdkClientEntry: hEntry, launch: { command: 'node', args: [] } }, undefined, undefined, (_p, e) => events.push(e))
+    const ok = await runtime.deliver(member('coder-1'), '[心跳] 团队摘要...', { wake: false })
+    expect(ok).toBe(true)
+    expect(hmod.instances.length).toBe(0) // 未 spawn
+    expect(events).toContain('context')
+  })
+
+  it('GIVEN 心跳已入上下文 WHEN 下一条真实消息 THEN 合并为前缀且只跑一轮', async () => {
+    const runtime = new DshSdkMemberRuntime({ sdkClientEntry: hEntry, launch: { command: 'node', args: [] } })
+    await runtime.deliver(member('coder-1'), '[心跳] 团队摘要 A', { wake: false })
+    await runtime.deliver(member('coder-1'), '[心跳] 团队摘要 B', { wake: false })
+    await runtime.deliver(member('coder-1'), '真实任务', { wake: true })
+    await viWait()
+    expect(hmod.instances.length).toBe(1)
+    expect(hmod.instances[0]?.runs).toHaveLength(1) // 心跳不产生独立轮次
+    const input = hmod.instances[0]?.runs[0]?.input ?? ''
+    expect(input).toContain('[CONTEXT INJECT]')
+    expect(input).toContain('团队摘要 A')
+    expect(input).toContain('团队摘要 B')
+    expect(input).toContain('真实任务')
+  })
+
+  it('GIVEN 心跳超 3 条 WHEN 合并 THEN 只保留最近 3 条(防无界增长)', async () => {
+    const runtime = new DshSdkMemberRuntime({ sdkClientEntry: hEntry, launch: { command: 'node', args: [] } })
+    for (let i = 0; i < 5; i++) await runtime.deliver(member('coder-1'), `心跳-${i}`, { wake: false })
+    await runtime.deliver(member('coder-1'), '任务', { wake: true })
+    await viWait()
+    const input = hmod.instances[0]?.runs[0]?.input ?? ''
+    expect(input).not.toContain('心跳-0')
+    expect(input).not.toContain('心跳-1')
+    expect(input).toContain('心跳-4')
+  })
+})
+
+describe('TeamService.heartbeatInject(M3.4 分支覆盖)', () => {
+  it('GIVEN session+远程成员并存 WHEN heartbeatInject THEN session 走父 agent inject、远程走上下文合并且不 spawn', async () => {
+    const hdir = mkdtempSync(join(tmpdir(), 'orgos-sdk-hbi-'))
+    writeFileSync(join(hdir, 'fake-sdk.mjs'), fakeModuleSource())
+    const hEntry = pathToFileURL(join(hdir, 'fake-sdk.mjs')).href
+    const hmod = (await import(hEntry)) as never as { instances: unknown[] }
+
+    const dir = mkdtempSync(join(tmpdir(), 'orgos-hb-'))
+    const liveAgents: Array<{ id: string; inject(msg: unknown): void }> = []
+    const injected: unknown[] = []
+    liveAgents.push({
+      id: 'orgos-member-lead',
+      inject(msg) {
+        injected.push(msg)
+      },
+    })
+    const agents: DshAgents = {
+      async create(o: unknown) {
+        const opts = o as { sessionId: string }
+        return { agent: new FakeAgent(opts.sessionId), dispose: async () => {} }
+      },
+      async resume() {
+        throw new Error('SESSION not found')
+      },
+      get: () => undefined,
+      list: () => liveAgents as never,
+    }
+    const presets: AgentPresetsMount = { async mount() { return {} } }
+    const service = new TeamService({
+      stateRoot: dir,
+      ownerIds: ['ou_owner'],
+      agents,
+      presets,
+      sdkMember: { sdkClientEntry: hEntry, launch: { command: 'node', args: [] }, positions: ['coder-1'] },
+    })
+    expect(service.setupInit(TEST_HEARTBEAT_YML).ok).toBe(true)
+    service.heartbeatInject()
+    // session 成员:父 agent inject 收到心跳文本
+    expect(injected).toHaveLength(1)
+    expect(String((injected[0] as { content: Array<{ text: string }> }).content[0]?.text)).toContain('[TEAM HEARTBEAT]')
+    // 远程成员:不 spawn 子进程(仅存上下文,下一轮合并 —— 见上面 describe)
+    expect(hmod.instances).toHaveLength(0)
+    rmSync(hdir, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+const TEST_HEARTBEAT_YML = `org: acme
+nodes:
+  - id: acme
+    kind: org
+    orchestratorPosition: lead
+    children: [team-main]
+  - id: team-main
+    kind: team
+positions:
+  - id: lead
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: coder-1
+    teamId: team-main
+    occupant: { kind: agent, preset: orgos-coder }
+routes: []
+acl:
+  delegationDepthMax: 3
+`

@@ -14,6 +14,9 @@
  * 心跳/系统通知使用 source { kind: 'plugin', plugin: 'dsh-orgos' }。
  */
 import { randomUUID } from 'node:crypto'
+import { spawn } from 'node:child_process'
+import { isAbsolute } from 'node:path'
+import { Readable as NodeReadable, Writable as NodeWritable } from 'node:stream'
 
 /** 本地轻量 DSH 契约形状(运行时结构,零 import;TS 只作注释级约束) */
 export interface DshAgents {
@@ -323,6 +326,8 @@ export class SessionMemberRuntime {
 export class DshSdkMemberRuntime implements MemberRuntimeFacade {
   /** positionId → 常驻子进程句柄 */
   private readonly members = new Map<string, { harness: SdkHarnessLike; sessionId: string; busy: boolean; queue: string[]; failed?: string }>()
+  /** 待合并上下文(wake:false 注入,如心跳):不触发独立轮次,并入下一条真实消息前缀 */
+  private readonly pendingContext = new Map<string, string[]>()
   private readonly bootNotes = new Map<string, string>()
   private modulePromise: Promise<{ DeepSeekHarness?: new (options: unknown) => SdkHarnessLike }> | undefined
   private closed = false
@@ -368,15 +373,28 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
     return this.snapshot(member.positionId, entry)
   }
 
-  /** 门面投递:入队后串行 pump(子进程单轮次语义;排队期间 busy 折叠) */
-  async deliver(member: MemberDef, text: string, _opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean> {
+  /** 门面投递:wake=true 入队串行 pump(子进程单轮次语义,排队期间 busy 折叠);
+   *  wake=false(心跳等)只合并进待注入上下文,不 spawn、不触发轮次。 */
+  async deliver(member: MemberDef, text: string, opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean> {
     if (this.closed) return false
+    if (!opts.wake) {
+      const ctx = this.pendingContext.get(member.positionId) ?? []
+      ctx.push(text)
+      if (ctx.length > 3) ctx.shift() // 只保留最近 3 条,防无界增长
+      this.pendingContext.set(member.positionId, ctx)
+      this.onEvent?.(member.positionId, 'context', `pending=${ctx.length}`)
+      return true
+    }
     const entry = await this.ensure(member).then((_r) => this.members.get(member.positionId))
     if (entry === undefined) return false
     if (entry.failed !== undefined) return false // 失败态需 release 重建,拒绝继续投递
+    const pending = this.pendingContext.get(member.positionId) ?? []
+    this.pendingContext.delete(member.positionId)
+    const merged = pending.length > 0 ? `[CONTEXT INJECT]
+${pending.join('\n---\n')}\n\n${text}` : text
     const note = this.bootNotes.get(member.positionId)
     this.bootNotes.delete(member.positionId)
-    entry.queue.push(note === undefined ? text : `[HANDOVER FRAMING]\n${note}\n\n${text}`)
+    entry.queue.push(note === undefined ? merged : `[HANDOVER FRAMING]\n${note}\n\n${merged}`)
     this.onEvent?.(member.positionId, 'deliver', `queue=${entry.queue.length}`)
     void this.pump(member.positionId, entry)
     return true
@@ -441,15 +459,344 @@ export class DshSdkMemberRuntime implements MemberRuntimeFacade {
   }
 }
 
-/** 混合成员后端:按岗位分流 session / dsh-sdk(渐进迁移期;默认全 session) */
+/** member-acp 后端选项(M3.3:ACP 子进程 P1 常驻 + 跨轮次会话复用) */
+export interface AcpMemberOptions {
+  /** 官方 ACP 客户端模块(@agentclientprotocol/sdk 或其等价,绝对路径或部署可解析 specifier);延迟 import,core 零静态依赖 */
+  sdkClientEntry: string
+  /** 子进程启动规格(spawn 命令 + 官方 acp-agent 组合路径;stdout 为纯净 ACP JSON-RPC 协议通道) */
+  launch: { command: string; args: string[]; cwd?: string; env?: Record<string, string> }
+  /** 审批策略:reject(默认,fail-closed 一律 cancelled)| allow(选第一个 allow_once/allow_always option) */
+  permission?: 'reject' | 'allow'
+  /** 每成员子进程 env 覆盖(team-rpc 的 URL/岗位/token 注入点,与 dsh-sdk 共用同一回调) */
+  memberEnv?: (positionId: string) => Record<string, string>
+  /** 仅列出的岗位走 member-acp 后端(缺省 = 空集合,不路由;用于渐进迁移验证,与 sdkMember.positions 同语义) */
+  positions?: string[]
+}
+
+/** 官方 ACP 客户端连接结构形状(运行时 Duck-typing,零 DSH import) */
+export interface AcpConnectionLike {
+  initialize(params: unknown): Promise<unknown>
+  newSession(params: unknown): Promise<{ sessionId?: string }>
+  prompt(params: unknown): Promise<{ stopReason?: string }>
+  cancel?(params: unknown): Promise<void>
+}
+
+/** ACP Client 回调形状(官方 Client 接口必需项:sessionUpdate + requestPermission) */
+export interface AcpClientLike {
+  sessionUpdate(params: { sessionId?: string; update?: { sessionUpdate?: string; content?: { type?: string; text?: string } } }): Promise<void>
+  requestPermission(params: { sessionId?: string; options?: Array<{ kind?: string; optionId?: string }>; toolCall?: unknown }): Promise<unknown>
+}
+
+/** 官方 ACP SDK 模块导出形状(命名导出缺一即抛错) */
+export interface AcpSdkModuleLike {
+  ClientSideConnection?: new (toClient: (agent: unknown) => unknown, stream: unknown) => AcpConnectionLike
+  ndJsonStream?: (output: unknown, input: unknown) => unknown
+  PROTOCOL_VERSION?: number
+}
+
+/** 子进程句柄形状(spawn 注入点;默认 child_process.spawn + node:stream toWeb 包装进 ndJsonStream) */
+export interface AcpProcLike {
+  stdin: NodeJS.WritableStream
+  stdout: NodeJS.ReadableStream
+  kill(signal?: NodeJS.Signals): void
+}
+
+/** spawn 结构注入(测试用 fake;默认 child_process.spawn,stdio ['pipe','pipe','inherit']) */
+export type AcpSpawnImpl = (spec: { argv: string[]; cwd: string; env?: Record<string, string> }) => AcpProcLike
+
+/** 模块级 memoize:sdkClientEntry → 模块加载 Promise(校验 ClientSideConnection/ndJsonStream/PROTOCOL_VERSION,缺则抛错) */
+const acpModuleCache = new Map<string, Promise<AcpSdkModuleLike>>()
+function loadAcpModule(entry: string): Promise<AcpSdkModuleLike> {
+  let promise = acpModuleCache.get(entry)
+  if (promise === undefined) {
+    promise = import(entry).then((mod) => {
+      const m = mod as AcpSdkModuleLike
+      if (typeof m.ClientSideConnection !== 'function') throw new Error(`sdkClientEntry ${entry} 未导出 ClientSideConnection`)
+      if (typeof m.ndJsonStream !== 'function') throw new Error(`sdkClientEntry ${entry} 未导出 ndJsonStream`)
+      if (m.PROTOCOL_VERSION === undefined) throw new Error(`sdkClientEntry ${entry} 未导出 PROTOCOL_VERSION`)
+      return m
+    })
+    acpModuleCache.set(entry, promise)
+  }
+  return promise
+}
+
+/** 默认 spawn:child_process.spawn(stdio ['pipe','pipe','inherit'];stderr 直通父进程,stdout 纯净协议通道) */
+function defaultAcpSpawn(spec: { argv: string[]; cwd: string; env?: Record<string, string> }): AcpProcLike {
+  const command = spec.argv[0] ?? ''
+  const child = spawn(command, spec.argv.slice(1), {
+    cwd: spec.cwd,
+    env: spec.env,
+    stdio: ['pipe', 'pipe', 'inherit'],
+  })
+  return {
+    stdin: child.stdin as NodeJS.WritableStream,
+    stdout: child.stdout as NodeJS.ReadableStream,
+    kill: (signal?: NodeJS.Signals) => {
+      child.kill(signal)
+    },
+  }
+}
+
+/** 简化拆卸的 stdin EOF 宽限期(ms):官方 disposeAcpChild 用 6s 等子进程协作式停稳,此处收敛为短等待 */
+export const ACP_DISPOSE_EOF_GRACE_MS = 50
+
+/** 每成员 ACP 会话条目(进程存活期内 sessionId 稳定复用 = 跨轮次人格/历史) */
+interface AcpMemberEntry {
+  conn: AcpConnectionLike
+  proc: AcpProcLike
+  /** 服务端会话 id(newSession 返回;跨轮次 prompt 复用同一 id) */
+  sessionId: string
+  busy: boolean
+  queue: string[]
+  /** 本轮 assistant 文本累积(agent_message_chunk 回调写入;prompt resolve 后清空回送) */
+  accumulator: string
+  failed?: string
+}
+
+/**
+ * member-acp 后端(M3.3:ACP 子进程 P1 常驻 + 跨轮次会话复用):
+ * 每个成员一个官方 ACP 子进程(官方 acp-agent 组合:acp-agent/llm-deepseek/sandbox/
+ * bash/approval/fs/持久化行),stdout 为纯净 ACP JSON-RPC 通道;成员会话 = newSession
+ * 返回的 sessionId,进程存活期内多次 prompt 复用(官方服务端支持,每 session 同时仅 1 个 in-flight)。
+ *
+ * 官方 ACP 事实(本会话核实,@agentclientprotocol/sdk v0.25.1):
+ * - ClientSideConnection((agent) => client, ndJsonStream(Writable.toWeb(stdin), Readable.toWeb(stdout)))
+ * - initialize({ protocolVersion, clientCapabilities }) → newSession({ cwd, mcpServers: [] }) → { sessionId }
+ * - prompt({ sessionId, prompt: [{ type: 'text', text }] }) → { stopReason }(await resolve = 整轮结束)
+ * - 助手文本:sessionUpdate 回调 agent_message_chunk + content.type==='text' 累积(官方只发 committed 整块)
+ * - requestPermission 回调:返回 selected(optionId) 或 cancelled;本后端 fail-closed(默认一律拒绝)
+ *
+ * 协作面边界(同 dsh-sdk):子进程组合不挂 team_* 工具,团队协作经父进程代理;
+ * 审批链路子进程侧走自动应答策略,resolveApproval 恒 false。
+ */
+export class AcpMemberRuntime implements MemberRuntimeFacade {
+  /** positionId → ACP 连接 + 子进程句柄(每成员一个子进程,成员隔离) */
+  private readonly members = new Map<string, AcpMemberEntry>()
+  /** 待合并上下文(wake:false 注入,如心跳):不触发独立轮次,并入下一条真实消息前缀 */
+  private readonly pendingContext = new Map<string, string[]>()
+  private readonly bootNotes = new Map<string, string>()
+  private readonly permission: 'reject' | 'allow'
+  private readonly memberEnv?: (positionId: string) => Record<string, string>
+  private readonly spawnImpl: AcpSpawnImpl
+  private closed = false
+
+  constructor(
+    private readonly options: AcpMemberOptions,
+    private readonly onStatus?: (positionId: string, status: MemberRuntime['status']) => void,
+    /** 成员 assistant 最终输出回送(positionId, text)—— 父侧登记回执/回送 IM */
+    private readonly onAssistant?: (positionId: string, text: string) => void,
+    /** 可观测事件(诊断用):ensure/deliver/context/run-ok/run-error */
+    private readonly onEvent?: (positionId: string, event: string, detail: string) => void,
+    /** 每成员子进程 env 覆盖(team-rpc 的 URL/岗位/token 注入点,与 dsh-sdk 共用) */
+    memberEnv?: (positionId: string) => Record<string, string>,
+    /** spawn 结构注入(测试用);缺省 child_process.spawn + node:stream toWeb 包装 */
+    spawnImpl?: AcpSpawnImpl,
+  ) {
+    this.permission = options.permission ?? 'reject'
+    this.memberEnv = memberEnv ?? options.memberEnv
+    this.spawnImpl = spawnImpl ?? defaultAcpSpawn
+  }
+
+  async ensure(member: MemberDef): Promise<MemberRuntime> {
+    const existing = this.members.get(member.positionId)
+    if (existing) return this.snapshot(member.positionId, existing)
+    const mod = await loadAcpModule(this.options.sdkClientEntry)
+    // 每成员独立子进程(成员隔离,与 dsh-sdk 一致);M3.3:memberEnv 覆盖合并进 launch.env
+    // (官方 env 整体替换语义,与 dsh-sdk 的 M3.2 注入一致)
+    const launch =
+      this.memberEnv === undefined
+        ? this.options.launch
+        : { ...this.options.launch, env: { ...(this.options.launch.env ?? {}), ...this.memberEnv(member.positionId) } }
+    const sessionCwd = this.resolveSessionCwd(member)
+    const proc = this.spawnImpl({
+      argv: [this.options.launch.command, ...this.options.launch.args],
+      cwd: launch.cwd ?? process.cwd(),
+      env: launch.env,
+    })
+    const entry: AcpMemberEntry = {
+      conn: undefined as unknown as AcpConnectionLike,
+      proc,
+      sessionId: '',
+      busy: false,
+      queue: [],
+      accumulator: '',
+    }
+    // 客户端回调闭包写 entry.accumulator(每成员连接独立,天然隔离);conn 创建后回填
+    const client: AcpClientLike = {
+      // 官方只发 committed 整块(非逐 token):agent_message_chunk + text 累积为本轮最终文本
+      sessionUpdate: async (params) => {
+        const update = params?.update
+        if (update?.sessionUpdate !== 'agent_message_chunk') return
+        if (update.content?.type !== 'text') return
+        const text = update.content.text
+        if (typeof text === 'string') entry.accumulator += text
+      },
+      // 审批 fail-closed:一律 cancelled(reject);permission='allow' 时选第一个 allow 类 option
+      // (与官方 subagent-acp 的自动应答策略一致)
+      requestPermission: async (params) => {
+        if (this.permission === 'allow') {
+          const allow = (params?.options ?? []).find((o) => o.kind === 'allow_once' || o.kind === 'allow_always')
+          if (allow !== undefined) return { outcome: { outcome: 'selected', optionId: allow.optionId } }
+        }
+        return { outcome: { outcome: 'cancelled' } }
+      },
+    }
+    const stream = mod.ndJsonStream!(NodeWritable.toWeb(proc.stdin as unknown as NodeWritable), NodeReadable.toWeb(proc.stdout as unknown as NodeReadable))
+    entry.conn = new mod.ClientSideConnection!(() => client, stream)
+    try {
+      await entry.conn.initialize({ protocolVersion: mod.PROTOCOL_VERSION, clientCapabilities: {} })
+      const session = await entry.conn.newSession({ cwd: sessionCwd, mcpServers: [] })
+      const serverSessionId = session?.sessionId
+      if (typeof serverSessionId !== 'string' || serverSessionId.length === 0) {
+        throw new Error('ACP 子进程未返回 sessionId(newSession 响应缺 sessionId)')
+      }
+      entry.sessionId = serverSessionId
+    } catch (error) {
+      // 握手失败:回收已 spawn 的子进程(进程属本后端所有,失败必须自清理),再向上抛
+      void this.teardown(entry).catch(() => {})
+      throw error
+    }
+    this.members.set(member.positionId, entry)
+    this.onEvent?.(member.positionId, 'ensure', `spawn ${String(this.options.launch.command)} ${String(this.options.launch.args?.[0])}`)
+    this.onStatus?.(member.positionId, 'idle')
+    return this.snapshot(member.positionId, entry)
+  }
+
+  /** 门面投递:wake=true 入队串行 pump(子进程单轮次语义,排队期间 busy 折叠);
+   *  wake=false(心跳等)只合并进待注入上下文,不 spawn、不触发轮次(同 dsh-sdk)。 */
+  async deliver(member: MemberDef, text: string, opts: { wake: boolean; source?: { kind: 'user' } | { kind: 'plugin'; plugin: string; form?: string; summary?: string } }): Promise<boolean> {
+    if (this.closed) return false
+    if (!opts.wake) {
+      const ctx = this.pendingContext.get(member.positionId) ?? []
+      ctx.push(text)
+      if (ctx.length > 3) ctx.shift() // 只保留最近 3 条,防无界增长
+      this.pendingContext.set(member.positionId, ctx)
+      this.onEvent?.(member.positionId, 'context', `pending=${ctx.length}`)
+      return true
+    }
+    const entry = await this.ensure(member).then((_r) => this.members.get(member.positionId))
+    if (entry === undefined) return false
+    if (entry.failed !== undefined) return false // 失败态需 release 重建,拒绝继续投递
+    const pending = this.pendingContext.get(member.positionId) ?? []
+    this.pendingContext.delete(member.positionId)
+    const merged = pending.length > 0 ? `[CONTEXT INJECT]
+${pending.join('\n---\n')}\n\n${text}` : text
+    const note = this.bootNotes.get(member.positionId)
+    this.bootNotes.delete(member.positionId)
+    entry.queue.push(note === undefined ? merged : `[HANDOVER FRAMING]\n${note}\n\n${merged}`)
+    this.onEvent?.(member.positionId, 'deliver', `queue=${entry.queue.length}`)
+    void this.pump(member.positionId, entry)
+    return true
+  }
+
+  /** 串行消费队列:一次 prompt 一轮(await resolve = 整轮结束),结束后回送累积文本 */
+  private async pump(positionId: string, entry: AcpMemberEntry): Promise<void> {
+    if (entry.busy) return
+    entry.busy = true
+    this.onStatus?.(positionId, 'busy')
+    try {
+      while (entry.queue.length > 0) {
+        const text = entry.queue.shift() ?? ''
+        entry.accumulator = '' // 每轮清空累积,防串轮次
+        const result = await entry.conn.prompt({ sessionId: entry.sessionId, prompt: [{ type: 'text', text }] })
+        const final = entry.accumulator.trim()
+        const reason = result?.stopReason ?? 'end_turn'
+        // 非正常终止(官方 acpStopReason 映射:refusal/cancelled/max_turn_requests 均非干净结束)
+        // 且无任何助手文本 → 记 failed(需 release 重建);有文本则照常回送(部分产出也算产出)
+        if (reason !== 'end_turn' && reason !== 'max_tokens' && final.length === 0) {
+          entry.failed = `turn ended with stopReason=${reason}`
+          this.onEvent?.(positionId, 'run-error', entry.failed)
+          this.onStatus?.(positionId, 'failed')
+          return
+        }
+        this.onEvent?.(positionId, 'run-ok', `final=${final.length}chars`)
+        if (final.length > 0) this.onAssistant?.(positionId, final)
+      }
+      this.onStatus?.(positionId, 'idle')
+    } catch (error) {
+      entry.failed = String(error).slice(0, 300)
+      this.onEvent?.(positionId, 'run-error', entry.failed)
+      this.onStatus?.(positionId, 'failed')
+    } finally {
+      entry.busy = false
+    }
+  }
+
+  /** 岗位替换/重建:关闭该成员子进程(简化拆卸阶梯,注释与官方 disposeAcpChild 对齐:
+   *  stdin EOF 协作退出 → 短宽限 → SIGTERM 升级),boot note 注入下次 ensure 后的首条消息 */
+  release(positionId: string, bootNote?: string): void {
+    const entry = this.members.get(positionId)
+    if (entry) {
+      this.members.delete(positionId)
+      void Promise.resolve().then(() => this.teardown(entry)).catch(() => {})
+    }
+    if (bootNote !== undefined && bootNote.trim().length > 0) this.bootNotes.set(positionId, bootNote)
+  }
+
+  /** 子进程拆卸阶梯:stdin end(EOF 协作退出探测)→ 短暂等待 → kill('SIGTERM')
+   *  (官方 disposeAcpChild:stdin.end → eofGraceMs 等退出 → terminate 的 SIGTERM→SIGKILL 升级;此处简化) */
+  private async teardown(entry: AcpMemberEntry): Promise<void> {
+    try {
+      entry.proc.stdin.end()
+    } catch {
+      /* stdin 已关闭/损坏等情形忽略 */
+    }
+    await new Promise((resolve) => setTimeout(resolve, ACP_DISPOSE_EOF_GRACE_MS))
+    try {
+      entry.proc.kill('SIGTERM')
+    } catch {
+      /* 进程已退出等情形忽略 */
+    }
+  }
+
+  /** ACP 子进程审批走自动应答策略(无父侧审批链路);恒 false */
+  resolveApproval(_approvalId: string, _action: 'allow' | 'deny'): boolean {
+    return false
+  }
+
+  /** 服务停止:回收全部成员子进程(幂等) */
+  async disposeAll(): Promise<void> {
+    this.closed = true
+    await Promise.allSettled([...this.members.values()].map((e) => this.teardown(e)))
+    this.members.clear()
+  }
+
+  /** ACP 会话 cwd:岗位 cwd > launch.cwd > 进程 cwd;必须为绝对路径(官方 newSession 契约) */
+  private resolveSessionCwd(member: MemberDef): string {
+    const cwd = member.cwd ?? this.options.launch.cwd ?? process.cwd()
+    if (!isAbsolute(cwd)) throw new Error(`ACP 会话 cwd 必须是绝对路径:${cwd}`)
+    return cwd
+  }
+
+  private snapshot(positionId: string, entry: { busy: boolean; failed?: string }): MemberRuntime {
+    return {
+      positionId,
+      kind: 'agent',
+      status: entry.failed !== undefined ? 'failed' : entry.busy ? 'busy' : 'idle',
+      sessionId: this.sessionIdFor(positionId),
+    }
+  }
+
+  private sessionIdFor(positionId: string): string {
+    // 命名空间区分 dsh-sdk(orgos-member-<id>):ACP 成员用 orgos-member-acp-<id>
+    return `orgos-member-acp-${positionId}`
+  }
+}
+
+/** 混合成员后端:按岗位分流 session / dsh-sdk / member-acp(渐进迁移期;默认全 session) */
 export class HybridMemberRuntime implements MemberRuntimeFacade {
   constructor(
     private readonly session: MemberRuntimeFacade,
     private readonly sdk: DshSdkMemberRuntime | undefined,
     private readonly sdkPositions: ReadonlySet<string>,
+    private readonly acp?: AcpMemberRuntime,
+    private readonly acpPositions?: ReadonlySet<string>,
   ) {}
 
+  /** 岗位分流:acp 优先 > sdk > session(同名岗位在两类远程后端中时 ACP 优先) */
   private for(member: MemberDef): MemberRuntimeFacade {
+    if (this.acp !== undefined && this.acpPositions !== undefined && this.acpPositions.has(member.positionId)) return this.acp
     return this.sdk !== undefined && this.sdkPositions.has(member.positionId) ? this.sdk : this.session
   }
 
@@ -462,9 +809,10 @@ export class HybridMemberRuntime implements MemberRuntimeFacade {
   }
 
   release(positionId: string, bootNote?: string): void {
-    // 两后端各自幂等:仅持有该岗位句柄的一侧生效
+    // 三后端各自幂等:仅持有该岗位句柄的一侧生效
     this.session.release(positionId, bootNote)
     this.sdk?.release(positionId, bootNote)
+    this.acp?.release(positionId, bootNote)
   }
 
   resolveApproval(approvalId: string, action: 'allow' | 'deny'): boolean {
@@ -472,6 +820,6 @@ export class HybridMemberRuntime implements MemberRuntimeFacade {
   }
 
   async disposeAll(): Promise<void> {
-    await Promise.allSettled([this.session.disposeAll(), this.sdk?.disposeAll()])
+    await Promise.allSettled([this.session.disposeAll(), this.sdk?.disposeAll(), this.acp?.disposeAll()])
   }
 }
