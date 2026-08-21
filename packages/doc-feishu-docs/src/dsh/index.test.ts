@@ -85,6 +85,40 @@ describe('doc-feishu-docs dsh 行(绑定层)', () => {
     expect(provider.label).toBe('团队云文档')
   })
 
+  it('GIVEN folderMap 命中 scope.teamId WHEN listDocuments THEN 按团队映射文件夹检索', async () => {
+    const provider = (await applyProvider({ credentialRef: 'feishu', folderToken: 'fld-default', folderMap: { 'team-main': 'fld-main', 'team-b': 'fld-b' } })) as {
+      listDocuments: (scope: unknown, opts?: unknown) => Promise<unknown>
+    }
+    mocks.listDocuments.mockResolvedValue([])
+    await provider.listDocuments({ teamId: 'team-main' }, { limit: 5 })
+    await provider.listDocuments({ teamId: 'team-b' }, { limit: 5 })
+    await provider.listDocuments({}, { limit: 5 })
+    await provider.listDocuments({ teamId: 'team-x' }, { limit: 5 })
+    expect(mocks.listDocuments).toHaveBeenNthCalledWith(1, 'fld-main', { limit: 5 })
+    expect(mocks.listDocuments).toHaveBeenNthCalledWith(2, 'fld-b', { limit: 5 })
+    expect(mocks.listDocuments).toHaveBeenNthCalledWith(3, 'fld-default', { limit: 5 })
+    expect(mocks.listDocuments).toHaveBeenNthCalledWith(4, 'fld-default', { limit: 5 })
+  })
+
+  it('GIVEN folderMap 命中团队 WHEN createDocument THEN 文档建到团队文件夹(body.folder_token)', async () => {
+    const provider = (await applyProvider({ credentialRef: 'feishu', folderToken: 'fld-default', folderMap: { 'team-main': 'fld-main' } })) as {
+      createDocument: (scope: unknown, doc: { title: string; body: string }) => Promise<unknown>
+    }
+    mocks.createDocument.mockResolvedValue({ documentId: 'doxc1', revision: '1' })
+    mocks.getMeta.mockResolvedValue({ title: '周报', revision: '2', url: 'https://feishu.cn/docx/doxc1' })
+    await provider.createDocument({ teamId: 'team-main' }, { title: '周报', body: '' })
+    expect(mocks.createDocument).toHaveBeenCalledWith('周报', { folderToken: 'fld-main' })
+  })
+
+  it('GIVEN 无 folderToken 且无 folderMap 命中 WHEN listDocuments THEN 传 undefined(协议层返回空)', async () => {
+    const provider = (await applyProvider({ credentialRef: 'feishu' })) as {
+      listDocuments: (scope: unknown, opts?: unknown) => Promise<unknown>
+    }
+    mocks.listDocuments.mockResolvedValue([])
+    await provider.listDocuments({ teamId: 'team-main' }, { limit: 5 })
+    expect(mocks.listDocuments).toHaveBeenCalledWith(undefined, { limit: 5 })
+  })
+
   it('GIVEN 缺 credentialRef WHEN apply THEN 不注册并告警', async () => {
     const c = ctx()
     await applyProvider({ folderToken: 'fldX' }, c)
@@ -171,7 +205,7 @@ describe('doc-feishu-docs dsh 行(绑定层)', () => {
     mocks.getMeta.mockResolvedValue({ title: '周报', revision: '3', url: 'https://feishu.cn/docx/doxc1' })
     const ref = await provider.createDocument({}, { title: '周报', body: '内容' })
     expect(ref).toEqual({ id: 'doxc1', title: '周报', version: '3', url: 'https://feishu.cn/docx/doxc1' })
-    expect(mocks.createDocument).toHaveBeenCalledWith('周报')
+    expect(mocks.createDocument).toHaveBeenCalledWith('周报', { folderToken: undefined })
     expect(mocks.setBody).toHaveBeenCalledWith('doxc1', '内容')
   })
 

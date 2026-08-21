@@ -95,6 +95,9 @@ interface DriveFile {
 /** 飞书业务错误码:文档不存在(404) */
 const CODE_DOC_NOT_FOUND = '1770002'
 
+/** 列目录总量硬上限:防止异常后端 has_more 恒真导致无界拉取 */
+const MAX_LIST_TOTAL = 1000
+
 export class FeishuDocsClient {
   private readonly baseUrl: string
   private tokenCache: TokenCache | undefined
@@ -106,12 +109,15 @@ export class FeishuDocsClient {
     this.baseUrl = config.baseUrl ?? 'https://open.feishu.cn'
   }
 
-  /** 创建云文档(仅标题;正文为空时 revision 即 1,非空时绑定层再 setBody) */
-  async createDocument(title: string): Promise<{ documentId: string; revision: string }> {
+  /** 创建云文档(仅标题;正文为空时 revision 即 1,非空时绑定层再 setBody)。
+   *  opts.folderToken 提供时写入 body.folder_token(官方 create 支持指定目标文件夹)。 */
+  async createDocument(title: string, opts?: { folderToken?: string }): Promise<{ documentId: string; revision: string }> {
+    const body: Record<string, unknown> = { title }
+    if (opts?.folderToken !== undefined && opts.folderToken !== '') body.folder_token = opts.folderToken
     const data = await this.request<{ data?: { document?: { document_id?: string; revision_id?: number } } }>(
       'POST',
       '/open-apis/docx/v1/documents',
-      { title },
+      body,
     )
     const doc = data.data?.document
     if (doc?.document_id === undefined) {
@@ -189,24 +195,34 @@ export class FeishuDocsClient {
 
   /**
    * 列出文件夹下的云文档(drive-v1 files,仅保留 type='docx')。
-   * MVP 限制:未配置 folderToken 时飞书无「列全部文档」的简单端点,保守返回空数组(不虚构实现);
-   * 仅支持单层文件夹(官方接口不支持递归),单页最多 200 条。
+   * - 未配置 folderToken 时飞书无「列全部文档」的简单端点,保守返回空数组(不虚构实现);
+   * - 官方分页:请求 page_token + 响应 has_more/page_token,本实现循环取全,
+   *   总量受 limit 截断(单次请求 ≤200);文件夹仅单层(官方接口不支持递归);
+   * - 防御:next page_token 与上页相同视为终点,防异常后端死循环。
    */
   async listDocuments(folderToken: string | undefined, opts?: { limit?: number }): Promise<FeishuDocRef[]> {
     if (!folderToken) return []
-    const limit = Math.max(1, Math.min(opts?.limit ?? 50, 200))
-    const data = await this.request<{ data?: { files?: DriveFile[] } }>(
-      'GET',
-      `/open-apis/drive/v1/files?folder_token=${encodeURIComponent(folderToken)}&page_size=${limit}`,
-    )
-    return (data.data?.files ?? [])
-      .filter((f) => f.type === 'docx')
-      .map((f) => ({
-        id: f.token,
-        title: f.name ?? '',
-        url: f.url ?? this.docUrl(f.token),
-        updatedAt: f.modified_time === undefined ? undefined : toIsoSeconds(f.modified_time),
-      }))
+    const limit = Math.max(1, Math.min(opts?.limit ?? 50, MAX_LIST_TOTAL))
+    const refs: FeishuDocRef[] = []
+    let pageToken: string | undefined
+    for (;;) {
+      const pageSize = Math.min(200, limit - refs.length)
+      if (pageSize <= 0) break
+      const qs =
+        `folder_token=${encodeURIComponent(folderToken)}&page_size=${pageSize}` +
+        (pageToken === undefined ? '' : `&page_token=${encodeURIComponent(pageToken)}`)
+      const data = await this.request<{ data?: { files?: DriveFile[]; has_more?: boolean; page_token?: string } }>(
+        'GET',
+        `/open-apis/drive/v1/files?${qs}`,
+      )
+      const files = data.data?.files ?? []
+      refs.push(...files.filter((f) => f.type === 'docx').map(fileToRef.bind(null, this)))
+      const next = data.data?.page_token
+      if (data.data?.has_more !== true || next === undefined || next === '' || next === pageToken) break
+      if (refs.length >= limit) break
+      pageToken = next
+    }
+    return refs.slice(0, limit)
   }
 
   /**
@@ -240,8 +256,8 @@ export class FeishuDocsClient {
     return meta.revision
   }
 
-  /** 浏览器打开链接:https://<base 域名>/docx/<id>,域名为去 open. 前缀的 API 域名 */
-  private docUrl(documentId: string): string {
+  /** 浏览器打开链接:https://<base 域名>/docx/<id>,域名为去 open. 前缀的 API 域名(公开:fileToRef 复用) */
+  docUrl(documentId: string): string {
     const host = new URL(this.baseUrl).hostname.replace(/^open\./, '')
     return `https://${host}/docx/${documentId}`
   }
@@ -289,4 +305,14 @@ export class FeishuDocsClient {
 function toIsoSeconds(value: string): string {
   const n = Number(value)
   return Number.isFinite(n) ? new Date(n * 1000).toISOString() : value
+}
+
+/** drive 文件 → FeishuDocRef(url 缺失回退拼接,updatedAt 缺省/原样) */
+function fileToRef(client: FeishuDocsClient, f: DriveFile): FeishuDocRef {
+  return {
+    id: f.token,
+    title: f.name ?? '',
+    url: f.url ?? client.docUrl(f.token),
+    updatedAt: f.modified_time === undefined ? undefined : toIsoSeconds(f.modified_time),
+  }
 }

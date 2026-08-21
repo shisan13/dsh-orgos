@@ -71,7 +71,9 @@
     #     name: 'dsh-orgos-doc-feishu-docs/dsh'
     #     config:
     #       credentialRef: 'feishu-main'
-    #       folderToken: ''                 # 可选,文档目录 token
+    #       folderToken: ''                 # 可选,默认文档文件夹 token(list/search 回落;create 默认落点)
+    #       folderMap:                      # 可选,团队 → 文件夹映射(scope.teamId 命中则覆盖 folderToken)
+    #         team-main: '<main 团队文件夹 token>'
     - id: team-doc-feishu-docs
       name: 'dsh-orgos-doc-feishu-docs/dsh'
       disabled: true

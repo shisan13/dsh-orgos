@@ -270,6 +270,72 @@ describe('FeishuDocsClient(协议层)', () => {
     expect(calls.length).toBe(0)
   })
 
+  it('GIVEN 文件夹超过一页 WHEN listDocuments THEN 按 page_token 循环取全且合并 docx', async () => {
+    const calls: Call[] = []
+    const pages = [
+      { code: 0, data: { files: [
+        { token: 'doxc1', name: '第1篇', type: 'docx' },
+        { token: 'doxc2', name: '第2篇', type: 'docx' },
+        { token: 'sht1', name: '表格', type: 'sheet' },
+      ], has_more: true, page_token: 'pt-2' } },
+      { code: 0, data: { files: [
+        { token: 'doxc3', name: '第3篇', type: 'docx' },
+      ], has_more: false } },
+    ]
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, init })
+      if (url.includes('tenant_access_token')) return respond({ code: 0, tenant_access_token: 'tok-1', expire: 7200 })
+      const page = url.includes('page_token=pt-2') ? 1 : 0
+      return respond(pages[page] as never)
+    }
+    const refs = await new FeishuDocsClient({ appId: 'cli_x', appSecret: 's' }, fetchImpl).listDocuments('fldX', { limit: 50 })
+    expect(refs.map((r) => r.title)).toEqual(['第1篇', '第2篇', '第3篇'])
+    expect(calls.some((c) => c.url.includes('page_token=pt-2'))).toBe(true)
+    // 分页请求的 page_size 按剩余量收敛(50-2=48)
+    expect(calls[2]?.url).toContain('page_size=48')
+  })
+
+  it('GIVEN limit 小于单页 WHEN listDocuments THEN 只请求一页且截断到 limit', async () => {
+    const calls: Call[] = []
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, init })
+      if (url.includes('tenant_access_token')) return respond({ code: 0, tenant_access_token: 'tok-1', expire: 7200 })
+      return respond({ code: 0, data: { files: [
+        { token: 'doxc1', name: 'A', type: 'docx' },
+        { token: 'doxc2', name: 'B', type: 'docx' },
+        { token: 'doxc3', name: 'C', type: 'docx' },
+      ], has_more: true, page_token: 'pt-2' } })
+    }
+    const refs = await new FeishuDocsClient({ appId: 'cli_x', appSecret: 's' }, fetchImpl).listDocuments('fldX', { limit: 2 })
+    expect(refs.map((r) => r.title)).toEqual(['A', 'B'])
+    expect(calls.filter((c) => c.url.includes('drive/v1/files'))).toHaveLength(1)
+  })
+
+  it('GIVEN 后端 next page_token 恒同 WHEN listDocuments THEN 防御性终止不死循环', async () => {
+    const calls: Call[] = []
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({ url, init })
+      if (url.includes('tenant_access_token')) return respond({ code: 0, tenant_access_token: 'tok-1', expire: 7200 })
+      return respond({ code: 0, data: { files: [{ token: 'doxc1', name: 'A', type: 'docx' }], has_more: true, page_token: 'same' } })
+    }
+    const refs = await new FeishuDocsClient({ appId: 'cli_x', appSecret: 's' }, fetchImpl).listDocuments('fldX')
+    // 第二页(重复 token)仍被收集一次,但循环终止:drive 请求恰好 2 次,不死循环
+    expect(calls.filter((c) => c.url.includes('drive/v1/files'))).toHaveLength(2)
+    expect(refs.length).toBeLessThanOrEqual(2)
+  })
+
+  it('GIVEN createDocument 带 folderToken WHEN 创建 THEN body 携带 folder_token;不带则无该字段', async () => {
+    const calls: Call[] = []
+    const c = client(calls)
+    await c.createDocument('带目录文档', { folderToken: 'fld-9' })
+    await c.createDocument('默认目录文档')
+    const createBodies = calls
+      .filter((x) => x.init?.method === 'POST' && /\/documents$/.test(x.url))
+      .map((x) => JSON.parse(x.init?.body ?? '{}'))
+    expect(createBodies[0]).toEqual({ title: '带目录文档', folder_token: 'fld-9' })
+    expect(createBodies[1]).toEqual({ title: '默认目录文档' })
+  })
+
   it('GIVEN 未核实搜索端点 WHEN searchDocuments THEN 保守返回空数组', async () => {
     const calls: Call[] = []
     expect(await client(calls).searchDocuments('周报')).toEqual([])

@@ -6,7 +6,10 @@
  * 与 im-feishu 同格式,可复用同一凭据键)。
  *
  * 配置(行 config,用户 profile 层覆盖):
- * { credentialRef, label?, folderToken? }
+ * { credentialRef, label?, folderToken?, folderMap? }
+ * - folderToken:默认文件夹(list/search 回落目录;create 默认落点);
+ * - folderMap:{ teamId → folderToken }:知识库按 team 分目录 —— scope.teamId 命中映射时
+ *   覆盖 folderToken(list/search/create 统一生效),未命中回落 folderToken;
  * 应用需在飞书开放平台开通「云文档 docx」权限(docx:document 等)。
  *
  * 版本/CAS 语义:DocumentRef.version = 飞书 revision_id(经 getMeta 取当前值);
@@ -16,7 +19,8 @@
  * 已知限制(官方核实,见协议层头注释):
  * - 官方无稳定的「更新文档标题」接口 → patch.title 被忽略(保守,不报错);
  * - 服务端搜索未核实到稳定端点 → searchDocuments 保守返回空数组;
- * - listDocuments 需 folderToken(未配置时返回空数组)。
+ * - listDocuments 未配置 folderToken/folderMap 时返回空数组(飞书无列全部文档端点);
+ * - 文件夹仅单层(官方接口不支持递归),分页由协议层循环取全(上限 1000 条)。
  */
 export const name = 'dsh-orgos-doc-feishu-docs'
 
@@ -30,8 +34,10 @@ interface DocFeishuDocsConfig {
   credentialRef: string
   /** 展示名(默认「飞书云文档」) */
   label?: string
-  /** 云空间文件夹 token;配置后 listDocuments/searchDocuments 按该文件夹检索 */
+  /** 默认文件夹 token(list/search 回落目录;create 默认落点) */
   folderToken?: string
+  /** 团队 → 文件夹 token 映射(scope.teamId 命中则覆盖 folderToken) */
+  folderMap?: Record<string, string>
 }
 
 interface Ctx {
@@ -48,7 +54,10 @@ interface TeamServiceLike {
 const CODE_DOC_NOT_FOUND = '1770002'
 
 export async function apply(ctx: Ctx, config: DocFeishuDocsConfig): Promise<void> {
-  const { credentialRef, folderToken } = config ?? {}
+  const { credentialRef, folderToken, folderMap } = config ?? {}
+  /** scope → 文件夹:teamId 命中 folderMap 优先,否则回落默认 folderToken */
+  const folderFor = (scope: { teamId?: string }): string | undefined =>
+    (scope.teamId !== undefined ? folderMap?.[scope.teamId] : undefined) ?? folderToken
   if (!credentialRef) {
     ctx.logger.warn('[dsh-orgos-doc-feishu-docs] 配置缺 credentialRef,行停用(团队云文档不启用)')
     return
@@ -65,9 +74,9 @@ export async function apply(ctx: Ctx, config: DocFeishuDocsConfig): Promise<void
     const provider: DocumentProvider = {
       id: 'feishu-docs',
       label: config.label ?? '飞书云文档',
-      async listDocuments(_scope, opts) {
-        // folderToken 透传:provider 的 scope 处理 = 按配置的文件夹检索
-        return client.listDocuments(folderToken, opts)
+      async listDocuments(scope, opts) {
+        // 目录映射:teamId 命中 folderMap → 对应文件夹;否则回落默认 folderToken
+        return client.listDocuments(folderFor(scope), opts)
       },
       async getDocument(ref) {
         try {
@@ -80,8 +89,8 @@ export async function apply(ctx: Ctx, config: DocFeishuDocsConfig): Promise<void
           throw error
         }
       },
-      async createDocument(_scope, doc) {
-        const created = await client.createDocument(doc.title)
+      async createDocument(scope, doc) {
+        const created = await client.createDocument(doc.title, { folderToken: folderFor(scope) })
         if (doc.body) await client.setBody(created.documentId, doc.body)
         const meta = await client.getMeta(created.documentId)
         return toRef(created.documentId, meta.title, meta.revision, meta.url)
@@ -100,9 +109,9 @@ export async function apply(ctx: Ctx, config: DocFeishuDocsConfig): Promise<void
         }
         return { ok: true, ref: toRef(ref.id, meta.title, revision, meta.url) }
       },
-      async searchDocuments(query, _scope) {
-        // 未核实到稳定服务端搜索端点 → 协议层保守返回空数组(MVP 限制)
-        return client.searchDocuments(query, { folderToken })
+      async searchDocuments(query, scope) {
+        // 未核实到稳定服务端搜索端点 → 协议层保守返回空数组(MVP 限制);目录映射同 list
+        return client.searchDocuments(query, { folderToken: folderFor(scope) })
       },
     }
     ctx.teamService.registerDocumentProvider(provider)
