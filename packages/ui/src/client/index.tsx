@@ -302,8 +302,9 @@ function TreeRow(props: {
   onSelect?: () => void
 }): ReactNode {
   const { node, pos, depth, expanded, hit, selected, focused, agg, onToggle, onSelect } = props
-  // 缩进:第 1 级 24px,之后每级 −2px,下限 12px
-  const indent = Math.max(12, 24 - 2 * depth)
+  // 缩进:每层 +18px(depth 0 顶格;org→bg→dept→team→岗位 五层 ≤90px),
+  // 上限 144px 防超深层级横向溢出(容器可横向滚动兜底)
+  const indent = Math.min(144, depth * 18)
   const lineColor = hit ? T.warn : T.border
   const content: ReactNode[] = []
   if (node !== undefined) {
@@ -365,7 +366,7 @@ function TreeRow(props: {
         outlineOffset: focused === true ? -1 : undefined,
       },
     },
-    createElement('div', { style: { width: indent, flexShrink: 0, alignSelf: 'stretch', borderLeft: `1px solid ${lineColor}` } }),
+    createElement('div', { style: { width: indent, flexShrink: 0, alignSelf: 'stretch', borderLeft: depth > 0 ? `1px solid ${lineColor}` : undefined } }),
     ...content,
   )
 }
