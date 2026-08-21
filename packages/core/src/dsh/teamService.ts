@@ -304,7 +304,11 @@ export class TeamService {
     const all = this.store.readAll('runs').slice(-limit).reverse()
     const runs = all.filter((r) => {
       const pos = String(r.positionId ?? r.toPositionId ?? '')
-      return pos === '' || pos === viewer || this.org?.isAncestor(this.org.nodeOfPosition(viewer), this.org.nodeOfPosition(pos))
+      if (pos === '') return true
+      // 岗位已删除(转岗/退役)的历史行:不再参与投影 —— 直接读文件仍可审计,
+      // 绝不能因历史行引用未知岗位而抛错(nodeOfPosition 曾因此崩快照)
+      if (!this.org?.hasPosition(pos)) return false
+      return pos === viewer || this.org.isAncestor(this.org.nodeOfPosition(viewer), this.org.nodeOfPosition(pos))
     })
     // 事件轨迹(runs 流)与业务事实(委派单)分口径统计,避免「委派单 2 张但事件 0 条」的困惑
     const count = (op: string): number => all.filter((r) => r.op === op).length
@@ -741,6 +745,15 @@ export class TeamService {
   }
 
   /** team_doctor 诊断(FR-X7):组合/配置/状态/存储四类检查,输出可执行修复建议 */
+  /** 无入站路由的岗位(配置残留诊断:岗位存在但任何 route 都不指向它) */
+  orphanPositions(): string[] {
+    if (!this.config) return []
+    const routed = new Set((this.config.routes ?? []).map((r) => r.target))
+    return this.config.positions
+      .filter((p) => !routed.has(p.id))
+      .map((p) => p.id)
+  }
+
   doctor(): { checks: Array<{ name: string; ok: boolean; detail: string }> } {
     const checks: Array<{ name: string; ok: boolean; detail: string }> = []
     checks.push({
@@ -768,6 +781,13 @@ export class TeamService {
       name: 'federation',
       ok: true,
       detail: this.federation ? `联邦已接入:${this.federation.nodeId}` : '联邦未接入(单实例运行;集团期经 setFederation 启用)',
+    })
+    checks.push({
+      name: 'orphan-positions',
+      ok: this.orphanPositions().length === 0,
+      detail: this.orphanPositions().length === 0
+        ? '全部岗位均有入站路由'
+        : `无路由岗位 ${this.orphanPositions().length} 个:${this.orphanPositions().join(', ')} —— 疑似配置残留(转岗后旧岗位未删/漏配 route);IM 无法触达,建议删除或补 route`,
     })
     checks.push({
       name: 'doc-providers',

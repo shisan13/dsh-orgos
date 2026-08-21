@@ -98,3 +98,29 @@ describe('TeamService RPC 认证(M3.2)', () => {
     expect(service.verifyMemberRpc('ghost', 'any')).toBe(false)
   })
 })
+
+describe('runReport 对已删除岗位的历史行容错(转岗/退役回归)', () => {
+  it('GIVEN runs 流含已删除岗位的历史行 WHEN runReport THEN 不抛错且该行不参与投影', () => {
+    const d2 = mkdtempSync(join(tmpdir(), 'orgos-orphan-rr-'))
+    const agents: DshAgents = {
+      async create(o: unknown) {
+        const opts = o as { sessionId: string }
+        return { agent: new FakeAgent(opts.sessionId), dispose: async () => {} }
+      },
+      async resume() {
+        throw new Error('SESSION not found')
+      },
+      get: () => undefined,
+      list: () => [],
+    }
+    const svc = new TeamService({ stateRoot: d2, ownerIds: ['ou_owner'], agents, presets: { mount: async () => ({}) } })
+    expect(svc.setupInit(TEST_TEAM_YML).ok).toBe(true)
+    svc.store.append('runs', { op: 'inbound', positionId: 'assistant-2', channel: 'telegram-personal' })
+    svc.store.append('runs', { op: 'inbound', positionId: 'coder-1', channel: 'feishu-coder' })
+    const report = svc.runReport('lead', 50)
+    expect(report.summary.length).toBeGreaterThan(0)
+    expect(report.runs.some((r) => r.positionId === 'assistant-2')).toBe(false)
+    expect(report.runs.some((r) => r.positionId === 'coder-1')).toBe(true)
+    rmSync(d2, { recursive: true, force: true })
+  })
+})

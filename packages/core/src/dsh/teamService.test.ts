@@ -204,12 +204,49 @@ describe('TeamService(绑定层)', () => {
     expect(events.some(([e, p]) => e === 'team/member-status' && p.status === 'busy')).toBe(true)
   })
 
-  it('GIVEN 团队已加载 WHEN team_doctor THEN 六类检查全 ok(含文档 provider)', () => {
+  it('GIVEN 团队已加载 WHEN team_doctor THEN 七类检查齐全(含文档 provider 与无路由岗位)', () => {
     const result = service.doctor()
-    expect(result.checks.length).toBe(6)
-    expect(result.checks.every((c) => c.ok)).toBe(true)
+    expect(result.checks.length).toBe(7)
     expect(result.checks[0].detail).toContain('岗位')
     expect(result.checks.find((c) => c.name === 'doc-providers')?.detail).toContain('未注册文档 provider')
+    // 本 fixture routes 为空 → 全部岗位无路由,orphan 检查如实列出(而非假装全 ok)
+    const orphan = result.checks.find((c) => c.name === 'orphan-positions')
+    expect(orphan?.ok).toBe(false)
+    expect(orphan?.detail).toContain('lead')
+    expect(orphan?.detail).toContain('疑似配置残留')
+  })
+
+  it('GIVEN 存在无路由岗位 WHEN doctor THEN orphan-positions 列出并给出修复建议', () => {
+    const extra = `org: acme
+nodes:
+  - id: acme
+    kind: org
+    orchestratorPosition: lead
+    children: [team-main]
+  - id: team-main
+    kind: team
+positions:
+  - id: lead
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: orphan-x
+    teamId: team-main
+    occupant: { kind: agent, preset: orgos-assistant }
+routes:
+  - { channel: feishu-main, peerId: oc_1, target: lead }
+acl:
+  delegationDepthMax: 3
+`
+    const svc = new TeamService({
+      stateRoot: mkdtempSync(join(tmpdir(), 'orgos-orphan-')),
+      ownerIds: ['ou_owner'],
+      agents: fakeAgents,
+      presets: { mount: async () => ({}) },
+    })
+    expect(svc.setupInit(extra).ok).toBe(true)
+    const check = svc.doctor().checks.find((c) => c.name === 'orphan-positions')
+    expect(check?.ok).toBe(false)
+    expect(check?.detail).toContain('orphan-x')
+    expect(check?.detail).toContain('疑似配置残留')
   })
 
   it('GIVEN 已加载团队 WHEN bindRoute THEN 路由生效且配置持久化', () => {
