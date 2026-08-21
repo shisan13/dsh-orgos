@@ -9,15 +9,24 @@
  * 概览条 + 组织树(折叠/搜索/详情卡)+ 手风琴面板;tree 为 undefined(旧 core)时
  * 保持原扁平列表渲染(FlatTeamView 兜底)。全部 createElement 风格,禁 JSX;
  * 颜色一律走官方主题 CSS 变量(--dsw-alias-*)。
+ *
+ * P2(>500 岗位场景):组织树面板虚拟滚动 + 键盘导航。
+ *  - 行模型:flattenVisible 按展开集合扁平化(折叠后代不产出);
+ *  - 渲染:visibleWindow 窗口化,仅渲染可视行 + 顶部/底部 spacer,总高 total*ROW_HEIGHT;
+ *  - 键盘:容器 tabIndex=0,决策走纯函数 keyboardMove(焦点移动/展开折叠/选中);
+ *  - 焦点样式用 --dsw-alias-state-warn-primary 描边,与命中高亮(文字色)区分。
  */
-import { createElement, useEffect, useMemo, useState } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   aggregateLabel,
   applyFilter,
   buildTreeIndex,
   defaultExpanded,
+  flattenVisible,
+  keyboardMove,
   rootAggregate,
+  visibleWindow,
 } from './tree.js'
 import type { OrgTreeAggregate, OrgTreeNode, OrgTreePosition, OrgTreeSnapshot } from './tree.js'
 
@@ -273,7 +282,13 @@ const overviewButtonStyle: Record<string, string> = {
   cursor: 'pointer',
 }
 
-/** 树行(容器节点与岗位叶子共用):连接线 = flex spacer 的 border-left(不画 ASCII) */
+/** 树行固定行高(px):虚拟滚动行距的唯一事实来源,行样式必须与其严格一致 */
+const ROW_HEIGHT = 22
+/** 可视区上下各多渲染的行数:滚动提前量,避免快速滚动露白 */
+const OVERSCAN = 8
+
+/** 树行(容器节点与岗位叶子共用):连接线 = flex spacer 的 border-left(不画 ASCII)。
+ *  P2 固定行高:height=22 / lineHeight=20 / 单行截断,保证滚动条语义与 ROW_HEIGHT 一致。 */
 function TreeRow(props: {
   node?: OrgTreeNode
   pos?: OrgTreePosition
@@ -281,11 +296,12 @@ function TreeRow(props: {
   expanded?: boolean
   hit: boolean
   selected?: boolean
+  focused?: boolean
   agg?: OrgTreeAggregate
   onToggle?: () => void
   onSelect?: () => void
 }): ReactNode {
-  const { node, pos, depth, expanded, hit, selected, agg, onToggle, onSelect } = props
+  const { node, pos, depth, expanded, hit, selected, focused, agg, onToggle, onSelect } = props
   // 缩进:第 1 级 24px,之后每级 −2px,下限 12px
   const indent = Math.max(12, 24 - 2 * depth)
   const lineColor = hit ? T.warn : T.border
@@ -335,10 +351,18 @@ function TreeRow(props: {
         display: 'flex',
         alignItems: 'center',
         gap: 8,
-        padding: '4px 8px',
+        height: ROW_HEIGHT,
+        lineHeight: '20px',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        boxSizing: 'border-box',
+        padding: '0 8px',
         cursor: clickable ? 'pointer' : 'default',
         backgroundColor: selected === true ? T.bg1 : undefined,
         boxShadow: selected === true ? `inset 2px 0 0 ${T.brand}` : undefined,
+        // 键盘焦点:outline 描边(与命中高亮=文字色区分,视觉不冲突;描边走 warn 主色)
+        outline: focused === true ? `1px solid ${T.warn}` : undefined,
+        outlineOffset: focused === true ? -1 : undefined,
       },
     },
     createElement('div', { style: { width: indent, flexShrink: 0, alignSelf: 'stretch', borderLeft: `1px solid ${lineColor}` } }),
@@ -346,60 +370,152 @@ function TreeRow(props: {
   )
 }
 
-/** 组织树主面板:双向滚动容器(容器 maxHeight calc(100vh - 220px));递归产出行 */
+/** 组织树主面板:虚拟滚动(>500 岗位场景)+ 键盘导航。
+ *  行序由 flattenVisible 按展开集合扁平化产出;仅渲染 visibleWindow 窗口内的行,
+ *  顶部/底部 spacer 撑起总高 total*ROW_HEIGHT,保证滚动条语义正确。
+ *  键盘:容器 tabIndex=0,决策交给纯函数 keyboardMove(副作用经注入回调执行)。 */
 function OrgTreePanel(props: {
   tree: OrgTreeSnapshot
   index: ReturnType<typeof buildTreeIndex>
-  isExpanded: (id: string) => boolean
+  expandedIds: Set<string>
   filterActive: boolean
   hitIds: Set<string>
   selectedId: string | null
   onToggleNode: (id: string) => void
+  onExpandNode: (id: string) => void
+  onCollapseNode: (id: string) => void
   onSelectPosition: (id: string) => void
 }): ReactNode {
-  const { tree, index, isExpanded, filterActive, hitIds, selectedId, onToggleNode, onSelectPosition } = props
+  const { tree, index, expandedIds, filterActive, hitIds, selectedId, onToggleNode, onExpandNode, onCollapseNode, onSelectPosition } = props
   const hit = (id: string): boolean => filterActive && hitIds.has(id)
-  const rows: ReactNode[] = []
-  const pushNode = (nodeId: string, depth: number): void => {
-    const node = index.nodeById.get(nodeId)
-    if (node === undefined) return
-    const expanded = isExpanded(nodeId)
-    rows.push(
-      createElement(TreeRow, {
-        key: `n:${nodeId}`,
-        node,
-        depth,
-        expanded,
-        hit: hit(nodeId),
-        agg: tree.aggregates[nodeId],
-        onToggle: () => onToggleNode(nodeId),
-      }),
-    )
-    if (!expanded) return // 折叠态只渲染容器行,不递归(首屏行数 = 展开节点数 + 可见岗位数)
-    for (const childId of index.children.get(nodeId) ?? []) pushNode(childId, depth + 1)
-    for (const pos of index.positions.get(nodeId) ?? []) {
-      rows.push(
-        createElement(TreeRow, {
-          key: `p:${pos.id}`,
-          pos,
-          depth: depth + 1,
-          hit: hit(pos.id),
-          selected: selectedId === pos.id,
-          onSelect: () => onSelectPosition(pos.id),
-        }),
-      )
+
+  // 扁平化行数组(搜索态由调用方把命中祖先并入 expandedIds 后传入)
+  const rows = useMemo(() => flattenVisible(tree, index, expandedIds), [tree, index, expandedIds])
+  const total = rows.length
+
+  // 滚动容器引用 + 视口高度测量(ResizeObserver;退化环境回退 window resize)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [focusIndex, setFocusIndex] = useState(0)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el === null) return
+    const update = (): void => setViewportHeight(el.clientHeight)
+    update()
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(update)
+      ro.observe(el)
+      return () => ro.disconnect()
+    }
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
+  // 焦点行滚入可视区:由行号反推 scrollTop(不做 scrollIntoView 等 DOM 滚动 API 依赖),
+  // 直接写容器 scrollTop,scroll 事件/同步 setState 会把状态与 spacer 布局对齐。
+  const ensureVisible = (rowIndex: number): void => {
+    const el = scrollRef.current
+    if (el === null || rowIndex < 0 || rowIndex >= total) return
+    const viewH = el.clientHeight > 0 ? el.clientHeight : viewportHeight
+    if (viewH <= 0) return
+    const rowTop = rowIndex * ROW_HEIGHT
+    const rowBottom = rowTop + ROW_HEIGHT
+    const curTop = el.scrollTop
+    let target: number | null = null
+    if (rowTop < curTop) target = rowTop
+    else if (rowBottom > curTop + viewH) target = rowBottom - viewH
+    if (target !== null && target !== curTop) {
+      el.scrollTop = target
+      setScrollTop(target)
     }
   }
-  for (const rootId of index.roots) pushNode(rootId, 0)
+
+  // 行集合变化(展开/折叠/搜索)时夹取焦点,再保证焦点行可见
+  useEffect(() => {
+    let next = focusIndex
+    if (next >= total) next = Math.max(0, total - 1)
+    if (next !== focusIndex) setFocusIndex(next)
+    ensureVisible(next)
+  }, [focusIndex, total])
+
+  // 键盘导航:分支决策全部在 keyboardMove,这里只同步焦点
+  const onKeyDown = (e: { key: string; preventDefault: () => void }): void => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Enter') {
+      e.preventDefault() // 防止页面随方向键滚动
+    }
+    const result = keyboardMove(rows, focusIndex, e.key, expandedIds, onExpandNode, onCollapseNode, onSelectPosition)
+    if (result.focusIndex !== focusIndex) setFocusIndex(result.focusIndex)
+  }
+
+  // 窗口化:仅渲染 [start, end),spacer 撑高
+  const win = visibleWindow(total, scrollTop, viewportHeight, ROW_HEIGHT, OVERSCAN)
+  const visibleRows = rows.slice(win.start, win.end)
+
+  // 空态/无命中提示(与 P1 一致)
+  let body: ReactNode
+  if (filterActive && hitIds.size === 0) {
+    body = createElement('div', { style: { padding: 16, color: T.text2, fontSize: 13 } }, '无匹配的岗位或团队(试试 title/id 关键字)')
+  } else if (total === 0) {
+    body = createElement('div', { style: { padding: 16, color: T.text2, fontSize: 13 } }, '组织为空(尚无节点与岗位)')
+  } else {
+    body = createElement(
+      'div',
+      { style: { height: total * ROW_HEIGHT, position: 'relative' } },
+      createElement('div', { key: 'spacer-top', style: { height: win.start * ROW_HEIGHT } }),
+      ...visibleRows.map((row, i) => {
+        const abs = win.start + i
+        if (row.type === 'node' && row.node !== undefined) {
+          return createElement(TreeRow, {
+            key: `n:${row.node.id}`,
+            node: row.node,
+            depth: row.depth,
+            expanded: expandedIds.has(row.node.id),
+            hit: hit(row.node.id),
+            focused: abs === focusIndex,
+            agg: tree.aggregates[row.node.id],
+            onToggle: () => onToggleNode(row.node.id),
+          })
+        }
+        if (row.type === 'position' && row.pos !== undefined) {
+          return createElement(TreeRow, {
+            key: `p:${row.pos.id}`,
+            pos: row.pos,
+            depth: row.depth,
+            hit: hit(row.pos.id),
+            selected: selectedId === row.pos.id,
+            focused: abs === focusIndex,
+            onSelect: () => onSelectPosition(row.pos.id),
+          })
+        }
+        return null
+      }),
+      createElement('div', { key: 'spacer-bottom', style: { height: (total - win.end) * ROW_HEIGHT } }),
+    )
+  }
 
   return createElement(
     'div',
-    { style: { maxHeight: 'calc(100vh - 220px)', overflow: 'auto', border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 0', flex: 1, minWidth: 0 } },
-    filterActive && hitIds.size === 0
-      ? createElement('div', { style: { padding: 16, color: T.text2, fontSize: 13 } }, '无匹配的岗位或团队(试试 title/id 关键字)')
-      : rows.length > 0
-        ? rows
-        : createElement('div', { style: { padding: 16, color: T.text2, fontSize: 13 } }, '组织为空(尚无节点与岗位)'),
+    {
+      ref: scrollRef,
+      tabIndex: 0,
+      onScroll: () => {
+        const el = scrollRef.current
+        if (el !== null) setScrollTop(el.scrollTop)
+      },
+      onKeyDown,
+      style: {
+        maxHeight: 'calc(100vh - 220px)',
+        overflow: 'auto',
+        border: `1px solid ${T.border}`,
+        borderRadius: 8,
+        flex: 1,
+        minWidth: 0,
+        outline: 'none',
+      },
+    },
+    body,
   )
 }
 
@@ -529,35 +645,51 @@ function OrgTreeView({ data }: { data: TeamSnapshotData }): ReactNode {
   const filter = useMemo(() => applyFilter(tree, query), [tree, query])
   const filterActive = query.trim().length > 0
 
-  // 展开判定:搜索态 → 命中祖先链强制展开(叠加用户显式展开,不改状态以便 Esc 恢复);
-  // 常态 → 显式展开 > 显式折叠 > 默认规则
-  const isExpanded = (id: string): boolean => {
-    if (filterActive) return filter.expandedAncestors.has(id) || expandedIds.has(id)
-    if (expandedIds.has(id)) return true
-    if (collapsedIds.has(id)) return false
-    return defaults.has(id)
-  }
-
-  const toggleNode = (id: string): void => {
-    if (isExpanded(id)) {
-      const next = new Set(collapsedIds)
-      next.add(id)
-      setCollapsedIds(next)
-      setExpandedIds((prev) => {
-        const s = new Set(prev)
-        s.delete(id)
-        return s
-      })
+  // 生效展开集合(P2 行模型单一事实源,与 P1 isExpanded 判定逐项等价):
+  // 搜索态 → 命中祖先链强制展开 + 用户显式展开(不改状态以便 Esc 恢复);
+  // 常态 → 显式展开 > 显式折叠 > 默认规则。
+  const visibleExpanded = useMemo<Set<string>>(() => {
+    const set = new Set<string>()
+    if (filterActive) {
+      for (const a of filter.expandedAncestors) set.add(a)
+      for (const id of expandedIds) set.add(id)
     } else {
-      const next = new Set(expandedIds)
-      next.add(id)
-      setExpandedIds(next)
-      setCollapsedIds((prev) => {
-        const s = new Set(prev)
-        s.delete(id)
-        return s
-      })
+      for (const n of tree.nodes) {
+        if (expandedIds.has(n.id)) set.add(n.id)
+        else if (!collapsedIds.has(n.id) && defaults.has(n.id)) set.add(n.id)
+      }
     }
+    return set
+  }, [tree, defaults, expandedIds, collapsedIds, filter, filterActive])
+
+  // 展开/折叠原语:显式覆盖集合互斥写入(键盘与点击共用同一状态机)
+  const expandNode = (id: string): void => {
+    setExpandedIds((prev) => {
+      const s = new Set(prev)
+      s.add(id)
+      return s
+    })
+    setCollapsedIds((prev) => {
+      const s = new Set(prev)
+      s.delete(id)
+      return s
+    })
+  }
+  const collapseNode = (id: string): void => {
+    setCollapsedIds((prev) => {
+      const s = new Set(prev)
+      s.add(id)
+      return s
+    })
+    setExpandedIds((prev) => {
+      const s = new Set(prev)
+      s.delete(id)
+      return s
+    })
+  }
+  const toggleNode = (id: string): void => {
+    if (visibleExpanded.has(id)) collapseNode(id)
+    else expandNode(id)
   }
 
   const expandAll = (): void => {
@@ -632,11 +764,13 @@ function OrgTreeView({ data }: { data: TeamSnapshotData }): ReactNode {
       createElement(OrgTreePanel, {
         tree,
         index,
-        isExpanded,
+        expandedIds: visibleExpanded,
         filterActive,
         hitIds: filter.hitIds,
         selectedId,
         onToggleNode: toggleNode,
+        onExpandNode: expandNode,
+        onCollapseNode: collapseNode,
         onSelectPosition: selectPosition,
       }),
       selectedPos !== undefined && !narrow ? createElement(MemberDetail, { pos: selectedPos, onClose: () => setSelectedId(null) }) : null,

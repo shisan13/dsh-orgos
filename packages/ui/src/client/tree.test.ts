@@ -1,19 +1,24 @@
 /**
- * tree.ts 纯函数单测(组织树视图 P1):Given-When-Then。
- * 覆盖:索引构建(根/排序/孤儿/岗位挂桶)、过滤(节点/岗位/祖先链/大小写/无命中)、
+ * tree.ts 纯函数单测(组织树视图 P1+P2):Given-When-Then。
+ * P1 覆盖:索引构建(根/排序/孤儿/岗位挂桶)、过滤(节点/岗位/祖先链/大小写/无命中)、
  * 默认展开规则(≤30 全展开 / >30 折叠 team)、聚合徽标文案、根聚合兜底。
+ * P2 覆盖:flattenVisible(深层树/折叠/搜索态祖先并入/脏引用/空树)、
+ * visibleWindow(夹取/overscan/退化输入)、keyboardMove(方向键/展开折叠/选中/越界/空表)。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   aggregateLabel,
   applyFilter,
   buildTreeIndex,
   defaultExpanded,
+  flattenVisible,
+  keyboardMove,
   orgRootId,
   rootAggregate,
   totalPositionCount,
+  visibleWindow,
 } from './tree.js'
-import type { OrgTreeAggregate, OrgTreeSnapshot } from './tree.js'
+import type { OrgTreeAggregate, OrgTreeSnapshot, VisibleRow } from './tree.js'
 
 /** 3 层 fixture:org → bg/dept → team → 岗位;含治理岗位、孤儿节点、全部四种容器 kind */
 function makeFixture(): OrgTreeSnapshot {
@@ -244,5 +249,285 @@ describe('根聚合兜底(概览条数据源)', () => {
       aggregates: {},
     }
     expect(totalPositionCount(tree)).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P2:flattenVisible / visibleWindow / keyboardMove
+// ---------------------------------------------------------------------------
+
+/** 4 层深树:org → bg → dept → team → 岗位(depth 最深处 4) */
+function makeDeepTree(): OrgTreeSnapshot {
+  return {
+    nodes: [
+      { id: 'o', kind: 'org', parentId: null },
+      { id: 'b', kind: 'bg', parentId: 'o' },
+      { id: 'd', kind: 'dept', parentId: 'b' },
+      { id: 't1', kind: 'team', parentId: 'd' },
+      { id: 't2', kind: 'team', parentId: 'd' },
+    ],
+    positionsByNode: {
+      o: [],
+      b: [],
+      d: [],
+      t1: [{ id: 'p1', kind: 'agent', status: 'offline' }],
+      t2: [],
+    },
+    aggregates: {},
+  }
+}
+
+/** fixture 全展开的行数组(id 序:acme→core→team-b→assistant-1→team-a→coder-1→coder-2→ops→team-c→op-1→lead) */
+function allRows(): VisibleRow[] {
+  const tree = makeFixture()
+  return flattenVisible(tree, buildTreeIndex(tree), defaultExpanded(tree))
+}
+
+/** 行数组内全部节点 id(作为「已展开」集合) */
+function nodeIds(rows: VisibleRow[]): Set<string> {
+  return new Set(rows.filter((r) => r.type === 'node').map((r) => r.node!.id))
+}
+
+describe('flattenVisible(按展开集合扁平化)', () => {
+  it('GIVEN 全部展开 WHEN flattenVisible THEN 行序深度优先:节点行在前、岗位行跟随其节点、祖先在前', () => {
+    const rows = allRows()
+    expect(rows.map((r) => (r.type === 'node' ? r.node!.id : r.pos!.id))).toEqual([
+      'acme', 'core', 'team-b', 'assistant-1', 'team-a', 'coder-1', 'coder-2', 'ops', 'team-c', 'op-1', 'lead',
+    ])
+    expect(rows.map((r) => r.depth)).toEqual([0, 1, 2, 3, 2, 3, 3, 1, 2, 3, 1])
+    expect(rows[0]!.type).toBe('node')
+    expect(rows[3]!.type).toBe('position')
+  })
+
+  it('GIVEN core 折叠 WHEN flattenVisible THEN 其后代(team-b/team-a 及岗位)不产出,但 core 行保留', () => {
+    const tree = makeFixture()
+    const expanded = defaultExpanded(tree)
+    expanded.delete('core')
+    const rows = flattenVisible(tree, buildTreeIndex(tree), expanded)
+    expect(rows.map((r) => (r.type === 'node' ? r.node!.id : r.pos!.id))).toEqual(['acme', 'core', 'ops', 'team-c', 'op-1', 'lead'])
+    expect(rows[1]!.type).toBe('node')
+  })
+
+  it('GIVEN 仅展开根 WHEN flattenVisible THEN 根行+直属子节点行+根直属岗位(子节点自身折叠,其后代不产出)', () => {
+    const tree = makeFixture()
+    const rows = flattenVisible(tree, buildTreeIndex(tree), new Set(['acme']))
+    expect(rows.map((r) => (r.type === 'node' ? r.node!.id : r.pos!.id))).toEqual(['acme', 'core', 'ops', 'lead'])
+    expect(rows.filter((r) => r.type === 'position')).toHaveLength(1) // 仅根直属岗位
+  })
+
+  it('GIVEN 展开集合为空 WHEN flattenVisible THEN 仅根行(后代全部不产出)', () => {
+    const tree = makeFixture()
+    const rows = flattenVisible(tree, buildTreeIndex(tree), new Set())
+    expect(rows.map((r) => r.node!.id)).toEqual(['acme'])
+  })
+
+  it('GIVEN 4 层深树全展开 WHEN flattenVisible THEN 行序按深度优先且 depth 逐层正确', () => {
+    const tree = makeDeepTree()
+    const rows = flattenVisible(tree, buildTreeIndex(tree), new Set(['o', 'b', 'd', 't1', 't2']))
+    expect(rows.map((r) => r.depth)).toEqual([0, 1, 2, 3, 4, 3])
+    expect(rows[3]!.node!.id).toBe('t1')
+    expect(rows[4]!.type).toBe('position')
+    expect(rows[4]!.pos!.id).toBe('p1')
+    expect(rows[5]!.node!.id).toBe('t2')
+  })
+
+  it('GIVEN 4 层深树中层折叠 WHEN flattenVisible THEN 折叠节点后代(含岗位)整体不产出', () => {
+    const tree = makeDeepTree()
+    // 展开 o/b,折叠 d:d 行仍产出,但 t1/t2 及其岗位不产出
+    const rows = flattenVisible(tree, buildTreeIndex(tree), new Set(['o', 'b']))
+    expect(rows.map((r) => (r.type === 'node' ? r.node!.id : r.pos!.id))).toEqual(['o', 'b', 'd'])
+  })
+
+  it('GIVEN 搜索态调用方把命中祖先并入 expandedIds WHEN flattenVisible THEN 命中岗位行可达', () => {
+    const tree = makeFixture()
+    const filter = applyFilter(tree, 'coder')
+    const expanded = new Set([...defaultExpanded(tree), ...filter.expandedAncestors])
+    const rows = flattenVisible(tree, buildTreeIndex(tree), expanded)
+    const ids = rows.map((r) => (r.type === 'node' ? r.node!.id : r.pos!.id))
+    expect(ids).toContain('coder-1')
+    expect(ids).toContain('coder-2')
+  })
+
+  it('GIVEN children 桶含脏引用 WHEN flattenVisible THEN 跳过未定义节点不崩溃', () => {
+    const tree = makeFixture()
+    const index = buildTreeIndex(tree)
+    index.children.get('core')!.push('no-such-node')
+    const rows = flattenVisible(tree, index, defaultExpanded(tree))
+    expect(rows.some((r) => r.type === 'node' && r.node!.id === 'no-such-node')).toBe(false)
+  })
+
+  it('GIVEN 节点岗位桶缺失 WHEN flattenVisible THEN 该节点行保留、无岗位行(?? [])', () => {
+    const tree = makeFixture()
+    delete tree.positionsByNode['team-a']
+    const rows = flattenVisible(tree, buildTreeIndex(tree), defaultExpanded(tree))
+    const ids = rows.map((r) => (r.type === 'node' ? r.node!.id : r.pos!.id))
+    expect(ids).toContain('team-a')
+    expect(ids).not.toContain('coder-1')
+  })
+
+  it('GIVEN 空树 WHEN flattenVisible THEN 返回空数组', () => {
+    const empty: OrgTreeSnapshot = { nodes: [], positionsByNode: {}, aggregates: {} }
+    expect(flattenVisible(empty, buildTreeIndex(empty), new Set())).toEqual([])
+  })
+})
+
+describe('visibleWindow(窗口化计算)', () => {
+  it('GIVEN 顶部视口 WHEN visibleWindow THEN start=0,end=可见行数+overscan', () => {
+    expect(visibleWindow(100, 0, 440, 22, 5)).toEqual({ start: 0, end: 25 }) // ceil(440/22)=20,+5
+  })
+
+  it('GIVEN 中部滚动 WHEN visibleWindow THEN start=floor(scrollTop/rowH)-overscan,end=ceil((scrollTop+viewH)/rowH)+overscan', () => {
+    expect(visibleWindow(100, 220, 440, 22, 5)).toEqual({ start: 5, end: 35 }) // floor(10)-5 / ceil(660/22)+5
+  })
+
+  it('GIVEN scrollTop 不足一行 WHEN visibleWindow THEN start 夹取到 0', () => {
+    expect(visibleWindow(100, 10, 440, 22, 0)).toEqual({ start: 0, end: 21 }) // ceil(450/22)=21
+  })
+
+  it('GIVEN 滚动到底 WHEN visibleWindow THEN end 夹取到 total', () => {
+    expect(visibleWindow(100, 2200, 440, 22, 5)).toEqual({ start: 95, end: 100 }) // floor(100)-5 / ceil(2640/22)+5=125→100
+  })
+
+  it('GIVEN 视口高度超过全部内容 WHEN visibleWindow THEN 全量可见', () => {
+    expect(visibleWindow(10, 0, 500, 22, 2)).toEqual({ start: 0, end: 10 })
+  })
+
+  it('GIVEN overscan=0 WHEN visibleWindow THEN 窗口恰为视口覆盖行', () => {
+    expect(visibleWindow(100, 220, 220, 22, 0)).toEqual({ start: 10, end: 20 })
+  })
+
+  it('GIVEN total=0 WHEN visibleWindow THEN {start:0,end:0}', () => {
+    expect(visibleWindow(0, 0, 440, 22, 5)).toEqual({ start: 0, end: 0 })
+  })
+
+  it('GIVEN rowHeight=0 退化配置 WHEN visibleWindow THEN 返回全量窗口不崩溃', () => {
+    expect(visibleWindow(50, 0, 440, 0, 5)).toEqual({ start: 0, end: 50 })
+  })
+})
+
+describe('keyboardMove(键盘导航决策)', () => {
+  it('GIVEN ArrowDown 中间行 WHEN keyboardMove THEN focusIndex+1 且无副作用', () => {
+    const expand = vi.fn()
+    const collapse = vi.fn()
+    const select = vi.fn()
+    const r = keyboardMove(allRows(), 2, 'ArrowDown', new Set(), expand, collapse, select)
+    expect(r.focusIndex).toBe(3)
+    expect(r.toggleNodeId).toBeUndefined()
+    expect(r.selectPositionId).toBeUndefined()
+    expect(expand).not.toHaveBeenCalled()
+    expect(collapse).not.toHaveBeenCalled()
+    expect(select).not.toHaveBeenCalled()
+  })
+
+  it('GIVEN ArrowDown 末行 WHEN keyboardMove THEN focusIndex 不动(越界不移动)', () => {
+    const r = keyboardMove(allRows(), 10, 'ArrowDown', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(10)
+  })
+
+  it('GIVEN ArrowUp 中间行 WHEN keyboardMove THEN focusIndex-1', () => {
+    const r = keyboardMove(allRows(), 5, 'ArrowUp', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(4)
+  })
+
+  it('GIVEN ArrowUp 首行 WHEN keyboardMove THEN focusIndex 不动', () => {
+    const r = keyboardMove(allRows(), 0, 'ArrowUp', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(0)
+  })
+
+  it('GIVEN ArrowRight 折叠容器节点 WHEN keyboardMove THEN expand 该节点且 focus 不动', () => {
+    const expand = vi.fn()
+    const r = keyboardMove(allRows(), 1, 'ArrowRight', new Set(['acme']), expand, vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(1)
+    expect(r.toggleNodeId).toBe('core')
+    expect(expand).toHaveBeenCalledWith('core')
+  })
+
+  it('GIVEN ArrowRight 已展开且有子行 WHEN keyboardMove THEN focus 移到第一个子行', () => {
+    const rows = allRows()
+    const r = keyboardMove(rows, 1, 'ArrowRight', nodeIds(rows), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(2) // core → team-b
+  })
+
+  it('GIVEN ArrowRight 已展开叶子节点(无子行)WHEN keyboardMove THEN focus 不动', () => {
+    const rows: VisibleRow[] = [
+      { type: 'node', node: { id: 'root', kind: 'org', parentId: null }, depth: 0 },
+      { type: 'node', node: { id: 'leaf', kind: 'team', parentId: 'root' }, depth: 1 },
+      { type: 'node', node: { id: 'sib', kind: 'team', parentId: 'root' }, depth: 1 },
+    ]
+    const r = keyboardMove(rows, 1, 'ArrowRight', new Set(['root', 'leaf']), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(1)
+  })
+
+  it('GIVEN ArrowRight 岗位行 WHEN keyboardMove THEN focus 不动且无副作用', () => {
+    const r = keyboardMove(allRows(), 3, 'ArrowRight', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(3)
+  })
+
+  it('GIVEN ArrowLeft 已展开容器节点 WHEN keyboardMove THEN collapse 该节点且 focus 不动', () => {
+    const collapse = vi.fn()
+    const r = keyboardMove(allRows(), 1, 'ArrowLeft', new Set(['acme', 'core']), vi.fn(), collapse, vi.fn())
+    expect(r.focusIndex).toBe(1)
+    expect(r.toggleNodeId).toBe('core')
+    expect(collapse).toHaveBeenCalledWith('core')
+  })
+
+  it('GIVEN ArrowLeft 折叠容器节点 WHEN keyboardMove THEN focus 移到父行', () => {
+    const r = keyboardMove(allRows(), 1, 'ArrowLeft', new Set(['acme']), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(0) // core → acme
+  })
+
+  it('GIVEN ArrowLeft 岗位行 WHEN keyboardMove THEN focus 移到所属节点行', () => {
+    const r = keyboardMove(allRows(), 3, 'ArrowLeft', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(2) // assistant-1 → team-b
+  })
+
+  it('GIVEN ArrowLeft 根节点且无父 WHEN keyboardMove THEN focus 不动', () => {
+    const r = keyboardMove(allRows(), 0, 'ArrowLeft', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(0)
+  })
+
+  it('GIVEN Enter 岗位行 WHEN keyboardMove THEN select 该岗位且 focus 不动', () => {
+    const select = vi.fn()
+    const r = keyboardMove(allRows(), 3, 'Enter', new Set(), vi.fn(), vi.fn(), select)
+    expect(r.focusIndex).toBe(3)
+    expect(r.selectPositionId).toBe('assistant-1')
+    expect(select).toHaveBeenCalledWith('assistant-1')
+  })
+
+  it('GIVEN Enter 折叠容器节点 WHEN keyboardMove THEN expand 该节点', () => {
+    const expand = vi.fn()
+    const r = keyboardMove(allRows(), 1, 'Enter', new Set(['acme']), expand, vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(1)
+    expect(r.toggleNodeId).toBe('core')
+    expect(expand).toHaveBeenCalledWith('core')
+  })
+
+  it('GIVEN Enter 已展开容器节点 WHEN keyboardMove THEN collapse 该节点', () => {
+    const collapse = vi.fn()
+    const r = keyboardMove(allRows(), 1, 'Enter', new Set(['acme', 'core']), vi.fn(), collapse, vi.fn())
+    expect(r.toggleNodeId).toBe('core')
+    expect(collapse).toHaveBeenCalledWith('core')
+  })
+
+  it('GIVEN 其它按键(Esc 等)WHEN keyboardMove THEN focus 不动且无副作用', () => {
+    const expand = vi.fn()
+    const collapse = vi.fn()
+    const select = vi.fn()
+    const r = keyboardMove(allRows(), 4, 'Escape', new Set(), expand, collapse, select)
+    expect(r.focusIndex).toBe(4)
+    expect(expand).not.toHaveBeenCalled()
+    expect(collapse).not.toHaveBeenCalled()
+    expect(select).not.toHaveBeenCalled()
+  })
+
+  it('GIVEN 空行列表 WHEN keyboardMove THEN focusIndex=0 且无副作用', () => {
+    const expand = vi.fn()
+    expect(keyboardMove([], 0, 'ArrowDown', new Set(), expand, vi.fn(), vi.fn())).toEqual({ focusIndex: 0 })
+    expect(expand).not.toHaveBeenCalled()
+  })
+
+  it('GIVEN focusIndex 越界 WHEN keyboardMove THEN 夹取到 [0, rows.length-1]', () => {
+    const r = keyboardMove(allRows(), 99, 'ArrowDown', new Set(), vi.fn(), vi.fn(), vi.fn())
+    expect(r.focusIndex).toBe(10) // 夹到末行后 ArrowDown 不再动
   })
 })

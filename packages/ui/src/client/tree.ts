@@ -7,6 +7,11 @@
  *  - aggregates:节点 id → 子树闭包聚合(服务端后序计算,UI 不重算)。
  * 岗位行额外携带 openDelegations/openTasks(服务端挂载,类型上为可选字段,
  * 与 core d.ts 的公开形状保持兼容)。
+ *
+ * P2 新增(>500 岗位场景):
+ *  - flattenVisible:按展开集合扁平化为行数组(虚拟滚动行模型);
+ *  - visibleWindow:滚动窗口化计算(start/end 夹取 + overscan);
+ *  - keyboardMove:键盘导航决策(焦点移动/展开折叠/选中,确定性可单测)。
  */
 
 /** 容器节点(与 core OrgTreeSnapshot.nodes 元素同形) */
@@ -182,4 +187,145 @@ export function applyFilter(tree: OrgTreeSnapshot, query: string): FilterResult 
 /** 容器聚合徽标文案:「N岗位 · X忙 · Y待命 · Z失败」(failed>0 红点由 UI 负责) */
 export function aggregateLabel(agg: OrgTreeAggregate): string {
   return `${agg.positionCount}岗位 · ${agg.busy}忙 · ${agg.offline}待命 · ${agg.failed}失败`
+}
+
+// ---------------------------------------------------------------------------
+// P2:扁平化 / 窗口化 / 键盘导航(虚拟滚动 + 键盘操作的行模型与决策,零 React 依赖)
+// ---------------------------------------------------------------------------
+
+/** 扁平化可见行(虚拟滚动与键盘导航共用行模型) */
+export interface VisibleRow {
+  type: 'node' | 'position'
+  node?: OrgTreeNode
+  pos?: OrgTreePosition
+  depth: number
+}
+
+/** 虚拟滚动可见窗口:行区间 [start, end),start/end 均已夹取到 [0, total] */
+export interface WindowRange {
+  start: number
+  end: number
+}
+
+/** 键盘导航决策结果:新焦点 + 动作报告(动作副作用已由注入回调执行,调用方勿重复执行) */
+export interface KeyboardMoveResult {
+  focusIndex: number
+  /** 需要切换展开的容器节点 id(展开/折叠方向由当前展开态决定,回调已执行) */
+  toggleNodeId?: string
+  /** 需要选中的岗位 id(与点击行为一致:重复 Enter 同一岗位取消选中,回调已执行) */
+  selectPositionId?: string
+}
+
+/**
+ * 按展开集合把树扁平化为行数组(深度优先:节点行在前、其直属岗位行在后)。
+ * 折叠节点的后代不产出,但节点自身行保留(与 P1 渲染语义一致);
+ * 搜索态由调用方把命中祖先并入 expandedIds 后传入,本函数不做搜索耦合。
+ * 岗位行直读快照桶(tree.positionsByNode 与 index.positions 同源,免一层索引)。
+ * 防御:children 桶里的脏引用(节点不存在)直接跳过,不崩溃。
+ */
+export function flattenVisible(tree: OrgTreeSnapshot, index: TreeIndex, expandedIds: Set<string>): VisibleRow[] {
+  const rows: VisibleRow[] = []
+  const pushNode = (nodeId: string, depth: number): void => {
+    const node = index.nodeById.get(nodeId)
+    if (node === undefined) return // 脏引用防御:正常索引下孤儿不可达
+    rows.push({ type: 'node', node, depth })
+    if (!expandedIds.has(nodeId)) return // 折叠:自身行保留,后代不产出
+    for (const childId of index.children.get(nodeId) ?? []) pushNode(childId, depth + 1)
+    for (const pos of tree.positionsByNode[nodeId] ?? []) rows.push({ type: 'position', pos, depth: depth + 1 })
+  }
+  for (const rootId of index.roots) pushNode(rootId, 0)
+  return rows
+}
+
+/**
+ * 虚拟滚动窗口化计算:
+ *  start = floor(scrollTop / rowHeight) − overscan(夹取 ≥ 0);
+ *  end   = ceil((scrollTop + viewportHeight) / rowHeight) + overscan(夹取 ≤ total)。
+ * 退化输入(total ≤ 0 或 rowHeight ≤ 0)返回整表可见,不崩溃。
+ */
+export function visibleWindow(
+  total: number,
+  scrollTop: number,
+  viewportHeight: number,
+  rowHeight: number,
+  overscan: number,
+): WindowRange {
+  if (total <= 0 || rowHeight <= 0) return { start: 0, end: Math.max(0, total) }
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan)
+  const end = Math.min(total, Math.ceil((scrollTop + Math.max(0, viewportHeight)) / rowHeight) + overscan)
+  return { start, end }
+}
+
+/**
+ * 键盘导航决策(确定性:同输入 → 同输出,便于单测)。
+ * 副作用经注入回调发出:expand/collapse/select 在命中对应分支时被调用一次;
+ * 返回值携带新焦点与动作报告(toggleNodeId/selectPositionId),供测试断言。
+ * 规则:
+ *  - ArrowDown/Up:focusIndex ±1,越界不动;
+ *  - ArrowRight:折叠容器 → expand(焦点不动);已展开 → 焦点移到第一个子行(无子行不动);
+ *  - ArrowLeft:已展开容器 → collapse(焦点不动);岗位行/折叠节点 → 焦点移到父行(无父不动);
+ *  - Enter:岗位行 → select;容器行 → 切换展开(collapse/expand 视当前展开态);
+ *  - 其它按键(含 Esc,由搜索框处理):仅返回当前焦点。
+ */
+export function keyboardMove(
+  rows: VisibleRow[],
+  focusIndex: number,
+  key: string,
+  expandedIds: Set<string>,
+  expand: (id: string) => void,
+  collapse: (id: string) => void,
+  select: (id: string) => void,
+): KeyboardMoveResult {
+  if (rows.length === 0) return { focusIndex: 0 }
+  const idx = Math.min(Math.max(0, focusIndex), rows.length - 1) // 焦点越界夹取
+  const cur = rows[idx]!
+  switch (key) {
+    case 'ArrowDown': {
+      if (idx >= rows.length - 1) return { focusIndex: idx }
+      return { focusIndex: idx + 1 }
+    }
+    case 'ArrowUp': {
+      if (idx <= 0) return { focusIndex: idx }
+      return { focusIndex: idx - 1 }
+    }
+    case 'ArrowRight': {
+      if (cur.type !== 'node' || cur.node === undefined) return { focusIndex: idx }
+      const nodeId = cur.node.id
+      if (!expandedIds.has(nodeId)) {
+        expand(nodeId)
+        return { focusIndex: idx, toggleNodeId: nodeId }
+      }
+      // 已展开:下一行即第一个子行(存在且更深才移动)
+      const next = rows[idx + 1]
+      if (next !== undefined && next.depth > cur.depth) return { focusIndex: idx + 1 }
+      return { focusIndex: idx }
+    }
+    case 'ArrowLeft': {
+      if (cur.type === 'node' && cur.node !== undefined && expandedIds.has(cur.node.id)) {
+        collapse(cur.node.id)
+        return { focusIndex: idx, toggleNodeId: cur.node.id }
+      }
+      // 岗位行或折叠节点:找最近的浅一级行即父行(扁平序中父行必在焦点之前)
+      for (let j = idx - 1; j >= 0; j -= 1) {
+        const row = rows[j]!
+        if (row.depth < cur.depth) return { focusIndex: j }
+      }
+      return { focusIndex: idx } // 根节点无父行,不动
+    }
+    case 'Enter': {
+      if (cur.type === 'position' && cur.pos !== undefined) {
+        select(cur.pos.id)
+        return { focusIndex: idx, selectPositionId: cur.pos.id }
+      }
+      if (cur.type === 'node' && cur.node !== undefined) {
+        const nodeId = cur.node.id
+        if (expandedIds.has(nodeId)) collapse(nodeId)
+        else expand(nodeId)
+        return { focusIndex: idx, toggleNodeId: nodeId }
+      }
+      return { focusIndex: idx }
+    }
+    default:
+      return { focusIndex: idx }
+  }
 }
