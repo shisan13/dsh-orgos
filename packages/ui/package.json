@@ -32,12 +32,14 @@
   "author": "shisan13",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/build-client.mjs",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.18",
+    "@vitest/coverage-v8": "^4.0.0",
     "esbuild": "^0.28.2",
     "react": "^19.2.8",
     "typescript": "^5.0.0",

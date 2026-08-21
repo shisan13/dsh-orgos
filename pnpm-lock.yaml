@@ -352,6 +352,9 @@ importers:
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
+      '@vitest/coverage-v8':
+        specifier: ^4.0.0
+        version: 4.1.10(vitest@4.1.10)
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
