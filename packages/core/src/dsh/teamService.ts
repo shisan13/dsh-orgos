@@ -8,6 +8,8 @@
  * 设计出处:技术设计 §5(TeamRegistry/MemberRuntime/DelegationEngine/Heartbeat)。
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
 import {
   DelegationEngine,
   Mailbox,
@@ -148,14 +150,22 @@ export class TeamService {
     const sdkOptions = options.sdkMember
     const acpOptions = options.acpMember
     // M3.2:配置了 RPC 入口 → 每个 SDK/ACP 成员 spawn 时注入子进程 env(URL/岗位/随机 token)
-    const memberEnv =
-      options.rpc?.url === undefined
-        ? undefined
-        : (positionId: string): Record<string, string> => ({
-            DSH_ORGOS_RPC_URL: options.rpc?.url as string,
-            DSH_ORGOS_RPC_POSITION: positionId,
-            DSH_ORGOS_RPC_TOKEN: this.issueMemberRpc(positionId),
-          })
+    // 成员子进程 env 注入(所有远程成员):
+    // - HOME 覆盖为成员专属目录:子进程 sandbox 为 workspace-write(读全盘),
+    //   ~ 重定向后无法触达父 HOME 下的其它 AI 框架配置/DSH 凭据目录;
+    // - 配置了 RPC 入口 → 附 URL/岗位/随机 token。
+    const memberHomesRoot = joinPath(options.stateRoot, 'member-homes')
+    const memberEnv = (positionId: string): Record<string, string> => {
+      const home = joinPath(memberHomesRoot, positionId)
+      mkdirSync(home, { recursive: true })
+      const env: Record<string, string> = { HOME: home }
+      if (options.rpc?.url !== undefined) {
+        env.DSH_ORGOS_RPC_URL = options.rpc.url
+        env.DSH_ORGOS_RPC_POSITION = positionId
+        env.DSH_ORGOS_RPC_TOKEN = this.issueMemberRpc(positionId)
+      }
+      return env
+    }
     const acpRuntime =
       acpOptions === undefined
         ? undefined

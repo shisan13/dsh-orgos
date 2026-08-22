@@ -350,3 +350,73 @@ routes: []
 acl:
   delegationDepthMax: 3
 `
+
+describe('TeamService 成员 HOME 隔离 + RPC env 注入(M3.4 安全加固)', () => {
+  it('GIVEN sdk 成员 + rpc 配置 WHEN 首条消息 spawn THEN 子进程 env 含成员专属 HOME 与 RPC 三要素', async () => {
+    const hdir = mkdtempSync(join(tmpdir(), 'orgos-sdk-home-'))
+    writeFileSync(join(hdir, 'fake-sdk.mjs'), fakeModuleSource())
+    const hEntry = pathToFileURL(join(hdir, 'fake-sdk.mjs')).href
+    const hmod = (await import(hEntry)) as never as { instances: Array<{ options: { launch: { env?: Record<string, string> } } }> }
+
+    const dir = mkdtempSync(join(tmpdir(), 'orgos-home-'))
+    const agents: DshAgents = {
+      async create(o: unknown) {
+        const opts = o as { sessionId: string }
+        return { agent: new FakeAgent(opts.sessionId), dispose: async () => {} }
+      },
+      async resume() {
+        throw new Error('SESSION not found')
+      },
+      get: () => undefined,
+      list: () => [],
+    }
+    const presets: AgentPresetsMount = { async mount() { return {} } }
+    const yml = `org: acme
+nodes:
+  - id: acme
+    kind: org
+    orchestratorPosition: lead
+    children: [team-main]
+  - id: team-main
+    kind: team
+positions:
+  - id: lead
+    occupant: { kind: agent, preset: orgos-orchestrator }
+  - id: coder-1
+    teamId: team-main
+    occupant: { kind: agent, preset: orgos-coder }
+routes:
+  - { channel: feishu-coder, peerId: oc_1, target: coder-1 }
+acl:
+  delegationDepthMax: 3
+`
+    const service = new TeamService({
+      stateRoot: dir,
+      ownerIds: ['ou_owner'],
+      agents,
+      presets,
+      sdkMember: { sdkClientEntry: hEntry, launch: { command: 'node', args: [] }, positions: ['coder-1'] },
+      rpc: { url: 'http://127.0.0.1:3081/api/orgos/rpc' },
+    })
+    expect(service.setupInit(yml).ok).toBe(true)
+    const r = await service.handleInbound({
+      channel: 'feishu-coder',
+      peer: { kind: 'group', id: 'oc_1' },
+      sender: { id: 'ou_owner' },
+      kind: 'mention',
+      content: '开工',
+      messageId: 'm1',
+    })
+    expect(r.routed).toBe(true)
+    await viWait()
+    const env = hmod.instances[0]?.options.launch.env ?? {}
+    expect(env.HOME).toBe(`${dir}/member-homes/coder-1`)
+    expect(env.DSH_ORGOS_RPC_URL).toBe('http://127.0.0.1:3081/api/orgos/rpc')
+    expect(env.DSH_ORGOS_RPC_POSITION).toBe('coder-1')
+    expect(env.DSH_ORGOS_RPC_TOKEN).toMatch(/^[0-9a-f]{64}$/)
+    const fs = require('node:fs') as typeof import('node:fs')
+    expect(fs.existsSync(`${dir}/member-homes/coder-1`)).toBe(true)
+    rmSync(hdir, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

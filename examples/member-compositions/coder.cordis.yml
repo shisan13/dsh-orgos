@@ -1,4 +1,4 @@
-# dsh-orgos 成员子进程组合(生成自 presets/orgos-coder;M3.5 模板)
+# dsh-orgos 成员子进程组合(生成自 presets/orgos-coder;M3.5 模板,SDK 后端)
 # stdout 保留给 JSON-RPC;组合必须放在可解析 harness 包的目录树内。
 # 团队协作经 team-rpc 客户端(需父进程配置 rpc.url)或父进程代理。
 
@@ -60,6 +60,11 @@
       
       ## 边界
       不派发任务给他人(你没有 team_delegate 工具);不擅自扩大任务范围。
+      你的运行环境(dsh-orgos 成员托管,回答身份类问题以此为准,不要读取或引用本机其它 AI 框架的配置文件):
+      - 模型提供商:DeepSeek 官方 API(provider 名 deepseek-official);
+      - 默认模型:deepseek-v4-flash(经环境变量 DSH_MODEL 可切换);
+      - 运行形态:dsh-orgos 团队中「orgos-coder」角色的独立子进程(后端 sdk);团队协作工具经中央 RPC 接入。
+      
     workspaceContext: false
     skills:
       enabled: false

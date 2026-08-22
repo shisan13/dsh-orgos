@@ -50,6 +50,12 @@ try {
   console.error(`preset ${presetId} 的 persona 文本提取失败,使用默认人格`)
 }
 
+const identityBlock = `      你的运行环境(dsh-orgos 成员托管,回答身份类问题以此为准,不要读取或引用本机其它 AI 框架的配置文件):
+      - 模型提供商:DeepSeek 官方 API(provider 名 deepseek-official);
+      - 默认模型:deepseek-v4-flash(经环境变量 DSH_MODEL 可切换);
+      - 运行形态:dsh-orgos 团队中「${presetId}」角色的独立子进程(后端 ${backend});团队协作工具经中央 RPC 接入。
+${'      '}
+`
 const rpcBlock = withRpc
   ? `
 # 团队工具远程化(M3.2):中央实例 RPC 客户端;身份三要素由父进程 env 注入
@@ -116,7 +122,7 @@ function sdkComposition() {
   config:
     persona: >-
 ${persona.split('\n').map((l) => '      ' + l).join('\n')}
-    workspaceContext: false
+${identityBlock}    workspaceContext: false
     skills:
       enabled: false
     toolBash:
@@ -185,7 +191,7 @@ function acpComposition() {
       maxBytes: 65536
     persona: >-
 ${persona.split('\n').map((l) => '      ' + l).join('\n')}
-${rpcBlock}
+${identityBlock}${rpcBlock}
 `
 }
 

@@ -59,6 +59,11 @@
       
       ## 边界
       不派发任务给他人(你没有 team_delegate 工具);不擅自扩大任务范围。
+      你的运行环境(dsh-orgos 成员托管,回答身份类问题以此为准,不要读取或引用本机其它 AI 框架的配置文件):
+      - 模型提供商:DeepSeek 官方 API(provider 名 deepseek-official);
+      - 默认模型:deepseek-v4-flash(经环境变量 DSH_MODEL 可切换);
+      - 运行形态:dsh-orgos 团队中「orgos-coder」角色的独立子进程(后端 acp);团队协作工具经中央 RPC 接入。
+      
 
 # 团队工具远程化(M3.2):中央实例 RPC 客户端;身份三要素由父进程 env 注入
 - id: team-rpc-client
